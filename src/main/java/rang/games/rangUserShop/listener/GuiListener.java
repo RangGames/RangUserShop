@@ -11,6 +11,8 @@ import org.bukkit.inventory.ItemStack;
 import rang.games.rangUserShop.GuiManager;
 import rang.games.rangUserShop.RangUserShop;
 
+import java.util.UUID;
+
 public class GuiListener implements Listener {
 
     private final RangUserShop plugin;
@@ -82,6 +84,8 @@ public class GuiListener implements Listener {
                     guiManager.openMainShop(player, currentTab, currentPage - 1);
                 }
                 break;
+            case GuiManager.MAIN_PAGE_INFO_SLOT:
+                break;
             case GuiManager.MAIN_NEXT_PAGE_SLOT:
                 if (clickedItem.getType() == Material.ARROW) {
                     guiManager.openMainShop(player, currentTab, currentPage + 1);
@@ -92,7 +96,16 @@ public class GuiListener implements Listener {
                 player.sendMessage(ChatColor.GREEN + "상점을 새로고침했습니다.");
                 break;
             case GuiManager.MAIN_SEARCH_HELP_SLOT:
-                if (clickType.isLeftClick()) {
+                if (clickType.isShiftClick() && clickType.isLeftClick()) {
+                    UUID filterSellerUuid = plugin.getPlayerFilterSellerUuid(player.getUniqueId());
+                    if (filterSellerUuid != null) {
+                        plugin.setPlayerFilterSellerUuid(player.getUniqueId(), null);
+                        player.sendMessage(ChatColor.GREEN + "판매자 필터가 초기화되었습니다.");
+                        guiManager.openMainShop(player, currentTab, 1);
+                    } else {
+                        player.sendMessage(ChatColor.YELLOW + "활성화된 판매자 필터가 없습니다.");
+                    }
+                } else if (clickType.isLeftClick()) {
                     guiManager.openSearchGui(player);
                 } else if (clickType.isRightClick()) {
                     guiManager.displayHelp(player);
@@ -102,9 +115,6 @@ public class GuiListener implements Listener {
                 plugin.toggleSortOrder();
                 guiManager.openMainShop(player, currentTab, 1);
                 player.sendMessage(ChatColor.GREEN + "정렬 방식이 " + plugin.getCurrentSortOrder().getDisplayName() + "로 변경되었습니다.");
-                break;
-            case GuiManager.MAIN_MANAGE_ITEMS_SLOT:
-                guiManager.openManagementGui(player, RangUserShop.ManagementTab.SELLING, 1);
                 break;
         }
     }

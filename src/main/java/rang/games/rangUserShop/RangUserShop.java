@@ -32,7 +32,9 @@ public final class RangUserShop extends JavaPlugin {
         OLDEST("오래된 순"),
         PRICE_ASC("가격 낮은순"),
         PRICE_DESC("가격 높은순"),
-        EXPIRING_SOON("만료 임박 순");
+        EXPIRING_SOON("만료 임박 순"),
+        ALPHABETICAL_ASC("이름 오름차순"),
+        ALPHABETICAL_DESC("이름 내림차순");
 
         private final String displayName;
 
@@ -54,6 +56,7 @@ public final class RangUserShop extends JavaPlugin {
         SELLING("판매 중인 물품", Material.CHEST),
         SOLD_EXPIRED("판매 완료/만료 물품", Material.ENDER_CHEST),
         STORAGE_INFO("보관함 안내", Material.BOOK);
+
 
         private final String displayName;
         private final Material icon;
@@ -98,6 +101,7 @@ public final class RangUserShop extends JavaPlugin {
     private final Map<UUID, String> playerSearchTerms = new HashMap<>();
     private final Map<UUID, MainGuiTab> playerCurrentMainTab = new HashMap<>();
     private final Map<UUID, Integer> playerCurrentPage = new HashMap<>();
+    private final Map<UUID, UUID> playerFilterSellerUuid = new HashMap<>();
 
     @Override
     public void onEnable() {
@@ -224,9 +228,22 @@ public final class RangUserShop extends JavaPlugin {
         return playerCurrentPage.getOrDefault(uuid, 1);
     }
 
+    public void setPlayerFilterSellerUuid(UUID playerUuid, UUID sellerUuid) {
+        if (sellerUuid == null) {
+            playerFilterSellerUuid.remove(playerUuid);
+        } else {
+            playerFilterSellerUuid.put(playerUuid, sellerUuid);
+        }
+    }
+
+    public UUID getPlayerFilterSellerUuid(UUID playerUuid) {
+        return playerFilterSellerUuid.get(playerUuid);
+    }
+
     public void clearPlayerData(UUID uuid) {
         playerSearchTerms.remove(uuid);
         playerCurrentMainTab.remove(uuid);
         playerCurrentPage.remove(uuid);
+        playerFilterSellerUuid.remove(uuid);
     }
 }

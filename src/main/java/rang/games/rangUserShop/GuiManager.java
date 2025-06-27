@@ -42,11 +42,12 @@ public class GuiManager {
     public static final int MAIN_TAB_AUCTION_SLOT = 46;
     public static final int MAIN_TAB_BUY_REQUEST_SLOT = 47;
     public static final int MAIN_PREV_PAGE_SLOT = 48;
+    public static final int MAIN_PAGE_INFO_SLOT = 49;
     public static final int MAIN_NEXT_PAGE_SLOT = 50;
-    public static final int MAIN_REFRESH_SLOT = 49;
-    public static final int MAIN_SEARCH_HELP_SLOT = 51;
-    public static final int MAIN_SORT_SLOT = 52;
-    public static final int MAIN_MANAGE_ITEMS_SLOT = 53;
+    public static final int MAIN_REFRESH_SLOT = 51;
+    public static final int MAIN_SEARCH_HELP_SLOT = 52;
+    public static final int MAIN_SORT_SLOT = 53;
+
 
     public static final int PURCHASE_CONFIRM_GUI_SIZE = 9;
     public static final int PURCHASE_DISPLAY_ITEM_SLOT = 4;
@@ -87,6 +88,7 @@ public class GuiManager {
     private final NamespacedKey shopItemIdKey;
     private final NamespacedKey auctionItemIdKey;
     private final NamespacedKey buyRequestIdKey;
+    private final NamespacedKey shopSellerUuidKey;
 
     private final Map<UUID, ManagementTab> playerCurrentManagementTab = new HashMap<>();
 
@@ -98,6 +100,7 @@ public class GuiManager {
         this.shopItemIdKey = new NamespacedKey(plugin, "shop_item_id");
         this.auctionItemIdKey = new NamespacedKey(plugin, "auction_item_id");
         this.buyRequestIdKey = new NamespacedKey(plugin, "buy_request_id");
+        this.shopSellerUuidKey = new NamespacedKey(plugin, "shop_seller_uuid");
     }
 
     public ManagementTab getPlayerCurrentManagementTab(UUID uuid) {
@@ -108,6 +111,7 @@ public class GuiManager {
         plugin.setPlayerCurrentMainTab(player.getUniqueId(), tab);
         plugin.setPlayerCurrentPage(player.getUniqueId(), page);
         String searchTerm = plugin.getPlayerSearchTerm(player.getUniqueId());
+        UUID filterSellerUuid = plugin.getPlayerFilterSellerUuid(player.getUniqueId());
 
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
             List<?> itemsToDisplay;
@@ -125,6 +129,11 @@ public class GuiManager {
                                         item.getSellerName().toLowerCase().contains(lowerCaseSearchTerm))
                                 .collect(Collectors.toList());
                     }
+                    if (filterSellerUuid != null) {
+                        shopItems = shopItems.stream()
+                                .filter(item -> item.getSellerUuid().equals(filterSellerUuid))
+                                .collect(Collectors.toList());
+                    }
                     SortOrder sortOrder = plugin.getCurrentSortOrder();
                     shopItems.sort(getShopItemComparator(sortOrder));
                     itemsToDisplay = shopItems;
@@ -140,6 +149,11 @@ public class GuiManager {
                                         item.getSellerName().toLowerCase().contains(lowerCaseSearchTerm))
                                 .collect(Collectors.toList());
                     }
+                    if (filterSellerUuid != null) {
+                        auctionItems = auctionItems.stream()
+                                .filter(item -> item.getSellerUuid().equals(filterSellerUuid))
+                                .collect(Collectors.toList());
+                    }
                     auctionItems.sort(Comparator.comparing(AuctionItem::getEndTimestamp));
                     itemsToDisplay = auctionItems;
                     guiTitle += "경매장";
@@ -152,6 +166,11 @@ public class GuiManager {
                                 .filter(item -> item.getItemStack().getType().name().toLowerCase().contains(lowerCaseSearchTerm) ||
                                         (item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() && ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()).toLowerCase().contains(lowerCaseSearchTerm)) ||
                                         item.getRequesterName().toLowerCase().contains(lowerCaseSearchTerm))
+                                .collect(Collectors.toList());
+                    }
+                    if (filterSellerUuid != null) {
+                        buyRequests = buyRequests.stream()
+                                .filter(item -> item.getRequesterUuid().equals(filterSellerUuid))
                                 .collect(Collectors.toList());
                     }
                     buyRequests.sort(Comparator.comparing(BuyRequest::getPricePerItem).reversed());
@@ -172,6 +191,12 @@ public class GuiManager {
             if (searchTerm != null && !searchTerm.isEmpty()) {
                 finalGuiTitle += " - 검색: " + searchTerm;
             }
+            if (filterSellerUuid != null) {
+                OfflinePlayer filteredPlayer = Bukkit.getOfflinePlayer(filterSellerUuid);
+                if (filteredPlayer.hasPlayedBefore()) {
+                    finalGuiTitle += " - 판매자: " + filteredPlayer.getName();
+                }
+            }
 
             Inventory gui = Bukkit.createInventory(null, GUI_FULL_SIZE, finalGuiTitle);
 
@@ -190,7 +215,7 @@ public class GuiManager {
                 }
             }
 
-            addMainNavigationBar(gui, tab, finalPage, totalPages);
+            addMainNavigationBar(player, gui, tab, finalPage, totalPages);
             Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(gui));
         });
     }
@@ -499,6 +524,16 @@ public class GuiManager {
                     openPurchaseConfirmGui(player, shopItem);
                 } else if (clickType.isRightClick()) {
                     openLowestPriceListGui(player, shopItem.getItemStack());
+                } else if (clickType.isShiftClick() && clickType.isRightClick()) {
+                    UUID sellerUuid = extractSellerUuid(clickedItem);
+                    if (sellerUuid != null) {
+                        plugin.setPlayerFilterSellerUuid(player.getUniqueId(), sellerUuid);
+                        OfflinePlayer filteredPlayer = Bukkit.getOfflinePlayer(sellerUuid);
+                        player.sendMessage(ChatColor.GREEN + (filteredPlayer.hasPlayedBefore() ? filteredPlayer.getName() : "알 수 없는 판매자") + "님의 상점만 표시합니다. 필터를 초기화하려면 '검색 / 도움말' 버튼을 Shift+좌클릭하세요.");
+                        openMainShop(player, currentTab, 1);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "판매자 정보를 찾을 수 없습니다.");
+                    }
                 } else if (clickType.isShiftClick()) {
                     handleDetailedPriceInfo(player, shopItem.getItemStack());
                 }
@@ -516,6 +551,16 @@ public class GuiManager {
                     openAuctionBidGui(player, auctionItem);
                 } else if (clickType.isRightClick() && auctionItem.getBuyNowPrice() > 0) {
                     handleAuctionBuyNow(player, clickedItem);
+                } else if (clickType.isShiftClick() && clickType.isRightClick()) {
+                    UUID sellerUuid = extractSellerUuid(clickedItem);
+                    if (sellerUuid != null) {
+                        plugin.setPlayerFilterSellerUuid(player.getUniqueId(), sellerUuid);
+                        OfflinePlayer filteredPlayer = Bukkit.getOfflinePlayer(sellerUuid);
+                        player.sendMessage(ChatColor.GREEN + (filteredPlayer.hasPlayedBefore() ? filteredPlayer.getName() : "알 수 없는 판매자") + "님의 경매만 표시합니다. 필터를 초기화하려면 '검색 / 도움말' 버튼을 Shift+좌클릭하세요.");
+                        openMainShop(player, currentTab, 1);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "판매자 정보를 찾을 수 없습니다.");
+                    }
                 }
                 break;
             case BUY_REQUESTS:
@@ -529,6 +574,16 @@ public class GuiManager {
                 }
                 if (clickType.isLeftClick()) {
                     openBuyRequestFulfillGui(player, buyRequest);
+                } else if (clickType.isShiftClick() && clickType.isRightClick()) {
+                    UUID requesterUuid = extractSellerUuid(clickedItem);
+                    if (requesterUuid != null) {
+                        plugin.setPlayerFilterSellerUuid(player.getUniqueId(), requesterUuid);
+                        OfflinePlayer filteredPlayer = Bukkit.getOfflinePlayer(requesterUuid);
+                        player.sendMessage(ChatColor.GREEN + (filteredPlayer.hasPlayedBefore() ? filteredPlayer.getName() : "알 수 없는 요청자") + "님의 구매 요청만 표시합니다. 필터를 초기화하려면 '검색 / 도움말' 버튼을 Shift+좌클릭하세요.");
+                        openMainShop(player, currentTab, 1);
+                    } else {
+                        player.sendMessage(ChatColor.RED + "요청자 정보를 찾을 수 없습니다.");
+                    }
                 }
                 break;
         }
@@ -720,6 +775,7 @@ public class GuiManager {
         handleFulfillBuyRequest(seller, requestId, amountToSell);
     }
 
+
     private void handleFulfillBuyRequest(Player seller, int buyRequestId, int amountToSell) {
         BuyRequest buyRequest = dbManager.getBuyRequestById(buyRequestId);
         if (buyRequest == null || !buyRequest.getStatus().equals("ACTIVE") || buyRequest.getAmountFulfilled() >= buyRequest.getAmountRequested()) {
@@ -755,6 +811,7 @@ public class GuiManager {
             seller.closeInventory();
             return;
         }
+
 
         double totalPrice = buyRequest.getPricePerItem() * amountToSell;
 
@@ -939,6 +996,7 @@ public class GuiManager {
 
     public void handleDetailedPriceInfo(Player player, ItemStack itemStack) {
         String itemHash = ItemHashUtil.generateItemHashForComparison(itemStack);
+
         long twentyFourHoursAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000L);
 
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
@@ -1067,6 +1125,18 @@ public class GuiManager {
             case PRICE_ASC -> Comparator.comparing(ShopItem::getPrice);
             case PRICE_DESC -> Comparator.comparing(ShopItem::getPrice).reversed();
             case EXPIRING_SOON -> Comparator.comparing(ShopItem::getExpiryTimestamp);
+            case ALPHABETICAL_ASC -> Comparator.comparing(item -> {
+                String name = item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() ?
+                        ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()) :
+                        item.getItemStack().getType().name();
+                return name.toLowerCase();
+            });
+            case ALPHABETICAL_DESC -> Comparator.comparing(item -> {
+                String name = item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() ?
+                        ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()) :
+                        item.getItemStack().getType().name();
+                return name.toLowerCase();
+            }).reversed();
         };
     }
 
@@ -1086,11 +1156,13 @@ public class GuiManager {
             lore.add(" ");
             lore.add(ChatColor.YELLOW + "▶ 좌클릭: 구매 확인창 열기");
             lore.add(ChatColor.YELLOW + "▶ 우클릭: 이 아이템 최저가 검색");
-            lore.add(ChatColor.YELLOW + "▶ Shift+클릭: 상세 시세 정보 보기");
+            lore.add(ChatColor.YELLOW + "▶ Shift+좌클릭: 상세 시세 정보 보기");
+            lore.add(ChatColor.YELLOW + "▶ Shift+우클릭: 판매자 상점 보기");
             lore.add(ChatColor.GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(shopItemIdKey, PersistentDataType.INTEGER, shopItem.getId());
+            meta.getPersistentDataContainer().set(shopSellerUuidKey, PersistentDataType.STRING, shopItem.getSellerUuid().toString());
             displayItem.setItemMeta(meta);
         }
         return displayItem;
@@ -1120,10 +1192,12 @@ public class GuiManager {
             if (auctionItem.getBuyNowPrice() > 0) {
                 lore.add(ChatColor.YELLOW + "▶ 우클릭: 즉시 구매하기");
             }
+            lore.add(ChatColor.YELLOW + "▶ Shift+우클릭: 판매자 경매 보기");
             lore.add(ChatColor.GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(auctionItemIdKey, PersistentDataType.INTEGER, auctionItem.getId());
+            meta.getPersistentDataContainer().set(shopSellerUuidKey, PersistentDataType.STRING, auctionItem.getSellerUuid().toString());
             displayItem.setItemMeta(meta);
         }
         return displayItem;
@@ -1144,10 +1218,12 @@ public class GuiManager {
             lore.add(ChatColor.AQUA + "남은 수량: " + ChatColor.WHITE + (buyRequest.getAmountRequested() - buyRequest.getAmountFulfilled()) + "개");
             lore.add(" ");
             lore.add(ChatColor.YELLOW + "▶ 좌클릭: 판매하기");
+            lore.add(ChatColor.YELLOW + "▶ Shift+우클릭: 요청자 구매 요청 보기");
             lore.add(ChatColor.GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(buyRequestIdKey, PersistentDataType.INTEGER, buyRequest.getId());
+            meta.getPersistentDataContainer().set(shopSellerUuidKey, PersistentDataType.STRING, buyRequest.getRequesterUuid().toString());
             displayItem.setItemMeta(meta);
         }
         return displayItem;
@@ -1162,6 +1238,7 @@ public class GuiManager {
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
             if (!lore.isEmpty()) lore.add(" ");
             lore.add(ChatColor.GRAY + "--------------------");
+
             lore.add(ChatColor.AQUA + "개당 가격: " + ChatColor.WHITE + formatter.format(shopItem.getPrice()) + "원");
             lore.add(ChatColor.AQUA + "수량: " + ChatColor.WHITE + shopItem.getAmount() + "개");
 
@@ -1233,7 +1310,7 @@ public class GuiManager {
         return displayItem;
     }
 
-    private void addMainNavigationBar(Inventory gui, MainGuiTab currentTab, int currentPage, int totalPages) {
+    private void addMainNavigationBar(Player player, Inventory gui, MainGuiTab currentTab, int currentPage, int totalPages) {
         gui.setItem(MAIN_TAB_SHOP_SLOT, createNavItem(MainGuiTab.SHOP.getIcon(), (currentTab == MainGuiTab.SHOP ? ChatColor.GREEN : ChatColor.YELLOW) + MainGuiTab.SHOP.getDisplayName(), ChatColor.GRAY + "일반 상점을 봅니다."));
         gui.setItem(MAIN_TAB_AUCTION_SLOT, createNavItem(MainGuiTab.AUCTION.getIcon(), (currentTab == MainGuiTab.AUCTION ? ChatColor.GREEN : ChatColor.YELLOW) + MainGuiTab.AUCTION.getDisplayName(), ChatColor.GRAY + "경매장을 봅니다."));
         gui.setItem(MAIN_TAB_BUY_REQUEST_SLOT, createNavItem(MainGuiTab.BUY_REQUESTS.getIcon(), (currentTab == MainGuiTab.BUY_REQUESTS ? ChatColor.GREEN : ChatColor.YELLOW) + MainGuiTab.BUY_REQUESTS.getDisplayName(), ChatColor.GRAY + "구매 요청 목록을 봅니다."));
@@ -1244,7 +1321,7 @@ public class GuiManager {
             gui.setItem(MAIN_PREV_PAGE_SLOT, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
         }
 
-        gui.setItem(MAIN_REFRESH_SLOT, createNavItem(Material.SUNFLOWER, ChatColor.YELLOW + "새로고침", "클릭하여 상점 목록을 새로고침합니다."));
+        gui.setItem(MAIN_PAGE_INFO_SLOT, createNavItem(Material.PAPER, ChatColor.AQUA + "페이지 정보", ChatColor.WHITE + String.valueOf(currentPage) + " / " + totalPages));
 
         if (currentPage < totalPages) {
             gui.setItem(MAIN_NEXT_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.GREEN + "다음 페이지", "클릭하여 " + (currentPage + 1) + "페이지로 이동합니다."));
@@ -1252,9 +1329,22 @@ public class GuiManager {
             gui.setItem(MAIN_NEXT_PAGE_SLOT, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
         }
 
-        gui.setItem(MAIN_SEARCH_HELP_SLOT, createNavItem(Material.OAK_SIGN, ChatColor.YELLOW + "검색 / 도움말", ChatColor.GRAY + "좌클릭: 검색", ChatColor.GRAY + "우클릭: 도움말"));
+        gui.setItem(MAIN_REFRESH_SLOT, createNavItem(Material.SUNFLOWER, ChatColor.YELLOW + "새로고침", "클릭하여 상점 목록을 새로고침합니다."));
+
+        UUID filterSellerUuid = plugin.getPlayerFilterSellerUuid(player.getUniqueId());
+        if (filterSellerUuid != null) {
+            OfflinePlayer filteredPlayer = Bukkit.getOfflinePlayer(filterSellerUuid);
+            gui.setItem(MAIN_SEARCH_HELP_SLOT, createNavItem(Material.REDSTONE_BLOCK, ChatColor.RED + "필터 활성화됨: " + (filteredPlayer.hasPlayedBefore() ? filteredPlayer.getName() : "알 수 없음"),
+                    ChatColor.GRAY + "Shift+좌클릭: 필터 초기화",
+                    ChatColor.GRAY + "좌클릭: 검색",
+                    ChatColor.GRAY + "우클릭: 도움말"));
+        } else {
+            gui.setItem(MAIN_SEARCH_HELP_SLOT, createNavItem(Material.OAK_SIGN, ChatColor.YELLOW + "검색 / 도움말",
+                    ChatColor.GRAY + "좌클릭: 검색",
+                    ChatColor.GRAY + "우클릭: 도움말"));
+        }
+
         gui.setItem(MAIN_SORT_SLOT, createNavItem(Material.HOPPER, ChatColor.YELLOW + "정렬: " + plugin.getCurrentSortOrder().getDisplayName(), "클릭하여 정렬 방식을 변경합니다."));
-        gui.setItem(MAIN_MANAGE_ITEMS_SLOT, createNavItem(Material.CHEST, ChatColor.YELLOW + "내 물품 관리", "내가 등록한 물품을 관리합니다."));
     }
 
     private void addManagementNavigationBar(Inventory gui, ManagementTab currentTab, int currentPage, int totalPages) {
@@ -1354,5 +1444,23 @@ public class GuiManager {
             }
         }
         return -1;
+    }
+
+    private UUID extractSellerUuid(ItemStack item) {
+        if (item != null && item.hasItemMeta()) {
+            ItemMeta meta = item.getItemMeta();
+            if (meta != null) {
+                PersistentDataContainer container = meta.getPersistentDataContainer();
+                if (container.has(shopSellerUuidKey, PersistentDataType.STRING)) {
+                    String uuidStr = container.get(shopSellerUuidKey, PersistentDataType.STRING);
+                    try {
+                        return UUID.fromString(uuidStr);
+                    } catch (IllegalArgumentException e) {
+                        plugin.getLogger().log(Level.WARNING, "Invalid UUID string in item PDC: " + uuidStr, e);
+                    }
+                }
+            }
+        }
+        return null;
     }
 }
