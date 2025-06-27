@@ -1,0 +1,40 @@
+name: RangUserShop
+version: '1.0-SNAPSHOT'
+main: rang.games.rangUserShop.RangUserShop
+author: Rang
+depend: [Vault, SignGUI, RangGiftBox]
+
+commands:
+  유저상점:
+    description: 유저상점 관련 모든 기능을 실행합니다.
+    usage: /<command> [하위 명령어]
+    aliases: [상점, usershop, shop]
+
+permissions:
+  usershop.open:
+    description: /유저상점 명령어로 상점 GUI를 엽니다.
+    default: true
+  usershop.sell:
+    description: /유저상점 판매 명령어로 아이템을 판매 등록합니다.
+    default: true
+  usershop.search:
+    description: 상점에서 아이템을 검색합니다.
+    default: true
+  usershop.price:
+    description: /유저상점 시세 명령어로 아이템 시세를 조회합니다.
+    default: true
+  usershop.manage:
+    description: /유저상점 관리 명령어로 자신의 물품을 관리합니다.
+    default: true
+  usershop.tax.exempt:
+    description: 판매 수수료를 면제받습니다.
+    default: op
+  usershop.bid.sell:
+    description: 아이템을 입찰(경매) 방식으로 등록합니다.
+    default: op
+  usershop.buyorder:
+    description: 원하는 아이템을 구매 요청 목록에 등록합니다.
+    default: op
+  usershop.admin:
+    description: 관리자용 명령어를 사용합니다.
+    default: op
