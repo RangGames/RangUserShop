@@ -4,7 +4,6 @@ import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.java.JavaPlugin;
 import rang.games.rangUserShop.util.ItemSerializer;
-import rang.games.rangUserShop.util.ItemHashUtil;
 
 import java.io.IOException;
 import java.sql.*;
@@ -88,7 +87,7 @@ public class DatabaseManager {
                 "amount INT NOT NULL," +
                 "list_timestamp BIGINT NOT NULL," +
                 "expiry_timestamp BIGINT NOT NULL," +
-                "status VARCHAR(10) NOT NULL DEFAULT 'LISTED'," +
+                "status VARCHAR(15) NOT NULL DEFAULT 'LISTED'," +
                 "INDEX (seller_uuid), INDEX (status), INDEX (expiry_timestamp), INDEX (item_hash)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
@@ -105,7 +104,7 @@ public class DatabaseManager {
                 "highest_bidder_name VARCHAR(16)," +
                 "start_timestamp BIGINT NOT NULL," +
                 "end_timestamp BIGINT NOT NULL," +
-                "status VARCHAR(10) NOT NULL DEFAULT 'ACTIVE'," +
+                "status VARCHAR(15) NOT NULL DEFAULT 'ACTIVE'," +
                 "INDEX (seller_uuid), INDEX (status), INDEX (end_timestamp), INDEX (item_hash)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
@@ -130,8 +129,9 @@ public class DatabaseManager {
                 "amount_requested INT NOT NULL," +
                 "amount_fulfilled INT NOT NULL DEFAULT 0," +
                 "request_timestamp BIGINT NOT NULL," +
-                "status VARCHAR(10) NOT NULL DEFAULT 'ACTIVE'," +
-                "INDEX (requester_uuid), INDEX (status), INDEX (item_hash)" +
+                "expiry_timestamp BIGINT NOT NULL," +
+                "status VARCHAR(15) NOT NULL DEFAULT 'ACTIVE'," +
+                "INDEX (requester_uuid), INDEX (status), INDEX (item_hash), INDEX (expiry_timestamp)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
         String createTransactionsTable = "CREATE TABLE IF NOT EXISTS shop_transactions (" +
@@ -146,7 +146,7 @@ public class DatabaseManager {
                 "price_per_item DOUBLE NOT NULL," +
                 "amount INT NOT NULL," +
                 "transaction_timestamp BIGINT NOT NULL," +
-                "type VARCHAR(20) NOT NULL," +
+                "type VARCHAR(25) NOT NULL," +
                 "INDEX (item_id), INDEX (buyer_uuid), INDEX (seller_uuid), INDEX (transaction_timestamp), INDEX (item_hash)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 
@@ -157,8 +157,24 @@ public class DatabaseManager {
             stmt.execute(createBuyRequestsTable);
             stmt.execute(createTransactionsTable);
             log.info("MariaDB 데이터베이스 테이블이 확인/생성되었습니다.");
+            addColumnIfNotExists("shop_buy_requests", "expiry_timestamp", "BIGINT NOT NULL DEFAULT 0 AFTER request_timestamp");
         } catch (SQLException e) {
             log.log(Level.SEVERE, "MariaDB 데이터베이스 테이블을 생성할 수 없습니다!", e);
+        }
+    }
+
+    private void addColumnIfNotExists(String tableName, String columnName, String columnDefinition) {
+        try {
+            DatabaseMetaData md = connection.getMetaData();
+            ResultSet rs = md.getColumns(null, null, tableName, columnName);
+            if (!rs.next()) {
+                try (Statement stmt = connection.createStatement()) {
+                    stmt.execute("ALTER TABLE " + tableName + " ADD COLUMN " + columnName + " " + columnDefinition);
+                    log.info("테이블 '" + tableName + "'에 '" + columnName + "' 컬럼을 추가했습니다.");
+                }
+            }
+        } catch (SQLException e) {
+            log.log(Level.WARNING, "테이블 '" + tableName + "'에 '" + columnName + "' 컬럼을 추가하는 데 실패했습니다.", e);
         }
     }
 
@@ -181,7 +197,6 @@ public class DatabaseManager {
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next()) {
                         generatedId = rs.getInt(1);
-                        log.info("상점 아이템이 ID " + generatedId + "로 성공적으로 저장되었습니다.");
                     }
                 }
             }
@@ -266,32 +281,12 @@ public class DatabaseManager {
         return items;
     }
 
-    public boolean updateShopItemAmount(int id, int newAmount) {
-        String sql = "UPDATE shop_items SET amount = ? WHERE id = ?";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, newAmount);
-            pstmt.setInt(2, id);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.info("상점 아이템 ID " + id + "의 수량이 " + newAmount + "로 업데이트되었습니다.");
-                return true;
-            }
-        } catch (SQLException e) {
-            log.log(Level.SEVERE, "ID " + id + "의 상점 아이템 수량을 MariaDB에서 업데이트할 수 없습니다!", e);
-        }
-        return false;
-    }
-
     public boolean updateShopItemStatus(int id, String newStatus) {
         String sql = "UPDATE shop_items SET status = ? WHERE id = ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, newStatus);
             pstmt.setInt(2, id);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.info("상점 아이템 ID " + id + "의 상태가 " + newStatus + "로 업데이트되었습니다.");
-                return true;
-            }
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             log.log(Level.SEVERE, "ID " + id + "의 상점 아이템 상태를 MariaDB에서 업데이트할 수 없습니다!", e);
         }
@@ -302,11 +297,7 @@ public class DatabaseManager {
         String sql = "DELETE FROM shop_items WHERE id = ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setInt(1, id);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.info("상점 아이템 ID " + id + "가 성공적으로 삭제되었습니다.");
-                return true;
-            }
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             log.log(Level.SEVERE, "ID " + id + "의 상점 아이템을 MariaDB에서 삭제할 수 없습니다!", e);
         }
@@ -430,7 +421,6 @@ public class DatabaseManager {
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next()) {
                         generatedId = rs.getInt(1);
-                        log.info("경매 아이템이 ID " + generatedId + "로 성공적으로 저장되었습니다.");
                     }
                 }
             }
@@ -503,11 +493,7 @@ public class DatabaseManager {
             pstmt.setString(3, bidderName);
             pstmt.setInt(4, id);
             pstmt.setDouble(5, newBid);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.info("경매 아이템 ID " + id + "의 입찰이 " + newBid + "로 업데이트되었습니다.");
-                return true;
-            }
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             log.log(Level.SEVERE, "ID " + id + "의 경매 아이템 입찰을 MariaDB에서 업데이트할 수 없습니다!", e);
         }
@@ -519,11 +505,7 @@ public class DatabaseManager {
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, newStatus);
             pstmt.setInt(2, id);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.info("경매 아이템 ID " + id + "의 상태가 " + newStatus + "로 업데이트되었습니다.");
-                return true;
-            }
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             log.log(Level.SEVERE, "ID " + id + "의 경매 아이템 상태를 MariaDB에서 업데이트할 수 없습니다!", e);
         }
@@ -585,7 +567,6 @@ public class DatabaseManager {
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next()) {
                         generatedId = rs.getInt(1);
-                        log.info("입찰이 ID " + generatedId + "로 성공적으로 저장되었습니다.");
                     }
                 }
             }
@@ -593,37 +574,6 @@ public class DatabaseManager {
             log.log(Level.SEVERE, "입찰을 MariaDB에 저장할 수 없습니다!", e);
         }
         return generatedId;
-    }
-
-    public Bid getLatestBidForAuction(int auctionId) {
-        String sql = "SELECT * FROM shop_bids WHERE auction_id = ? ORDER BY bid_amount DESC, bid_timestamp DESC LIMIT 1";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, auctionId);
-            try (ResultSet rs = pstmt.executeQuery()) {
-                if (rs.next()) {
-                    return bidFromResultSet(rs);
-                }
-            }
-        } catch (SQLException e) {
-            log.log(Level.SEVERE, "경매 ID " + auctionId + "의 최신 입찰을 조회할 수 없습니다!", e);
-        }
-        return null;
-    }
-
-    public List<Bid> getBidsForAuction(int auctionId) {
-        List<Bid> bids = new ArrayList<>();
-        String sql = "SELECT * FROM shop_bids WHERE auction_id = ? ORDER BY bid_amount DESC, bid_timestamp DESC";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setInt(1, auctionId);
-            try (ResultSet rs = pstmt.executeQuery()) {
-                while (rs.next()) {
-                    bids.add(bidFromResultSet(rs));
-                }
-            }
-        } catch (SQLException e) {
-            log.log(Level.SEVERE, "경매 ID " + auctionId + "의 입찰 목록을 조회할 수 없습니다!", e);
-        }
-        return bids;
     }
 
     private Bid bidFromResultSet(ResultSet rs) throws SQLException {
@@ -637,7 +587,7 @@ public class DatabaseManager {
     }
 
     public int saveBuyRequest(BuyRequest request) {
-        String sql = "INSERT INTO shop_buy_requests (requester_uuid, requester_name, item_stack, item_hash, price_per_item, amount_requested, amount_fulfilled, request_timestamp, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)";
+        String sql = "INSERT INTO shop_buy_requests (requester_uuid, requester_name, item_stack, item_hash, price_per_item, amount_requested, amount_fulfilled, request_timestamp, expiry_timestamp, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
         int generatedId = -1;
         try (PreparedStatement pstmt = connection.prepareStatement(sql, Statement.RETURN_GENERATED_KEYS)) {
             pstmt.setString(1, request.getRequesterUuid().toString());
@@ -648,14 +598,14 @@ public class DatabaseManager {
             pstmt.setInt(6, request.getAmountRequested());
             pstmt.setInt(7, request.getAmountFulfilled());
             pstmt.setLong(8, request.getRequestTimestamp());
-            pstmt.setString(9, request.getStatus());
+            pstmt.setLong(9, request.getExpiryTimestamp());
+            pstmt.setString(10, request.getStatus());
 
             int affectedRows = pstmt.executeUpdate();
             if (affectedRows > 0) {
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next()) {
                         generatedId = rs.getInt(1);
-                        log.info("구매 요청이 ID " + generatedId + "로 성공적으로 저장되었습니다.");
                     }
                 }
             }
@@ -684,8 +634,9 @@ public class DatabaseManager {
 
     public List<BuyRequest> getAllActiveBuyRequests() {
         List<BuyRequest> requests = new ArrayList<>();
-        String sql = "SELECT * FROM shop_buy_requests WHERE status = 'ACTIVE' AND amount_fulfilled < amount_requested ORDER BY price_per_item DESC, request_timestamp ASC";
+        String sql = "SELECT * FROM shop_buy_requests WHERE status = 'ACTIVE' AND amount_fulfilled < amount_requested AND expiry_timestamp > ? ORDER BY price_per_item DESC, request_timestamp ASC";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setLong(1, System.currentTimeMillis());
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
                     BuyRequest request = buyRequestFromResultSet(rs);
@@ -700,11 +651,11 @@ public class DatabaseManager {
         return requests;
     }
 
-    public List<BuyRequest> getBuyRequestsByRequester(UUID requesterUuid) {
+    public List<BuyRequest> getExpiredActiveBuyRequests() {
         List<BuyRequest> requests = new ArrayList<>();
-        String sql = "SELECT * FROM shop_buy_requests WHERE requester_uuid = ? ORDER BY request_timestamp DESC";
+        String sql = "SELECT * FROM shop_buy_requests WHERE status = 'ACTIVE' AND expiry_timestamp <= ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setString(1, requesterUuid.toString());
+            pstmt.setLong(1, System.currentTimeMillis());
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
                     BuyRequest request = buyRequestFromResultSet(rs);
@@ -714,40 +665,18 @@ public class DatabaseManager {
                 }
             }
         } catch (SQLException e) {
-            log.log(Level.SEVERE, "요청자 " + requesterUuid + "의 구매 요청을 MariaDB에서 조회할 수 없습니다!", e);
+            log.log(Level.SEVERE, "만료된 활성 구매 요청을 MariaDB에서 조회할 수 없습니다!", e);
         }
         return requests;
     }
 
-    public List<BuyRequest> getActiveBuyRequestsByItemHash(String itemHash) {
-        List<BuyRequest> requests = new ArrayList<>();
-        String sql = "SELECT * FROM shop_buy_requests WHERE item_hash = ? AND status = 'ACTIVE' AND amount_fulfilled < amount_requested ORDER BY price_per_item DESC";
-        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
-            pstmt.setString(1, itemHash);
-            try (ResultSet rs = pstmt.executeQuery()) {
-                while (rs.next()) {
-                    BuyRequest request = buyRequestFromResultSet(rs);
-                    if (request != null) {
-                        requests.add(request);
-                    }
-                }
-            }
-        } catch (SQLException e) {
-            log.log(Level.SEVERE, "해시 " + itemHash + "의 활성 구매 요청을 MariaDB에서 조회할 수 없습니다!", e);
-        }
-        return requests;
-    }
 
     public boolean updateBuyRequestAmountFulfilled(int id, int fulfilledAmount) {
         String sql = "UPDATE shop_buy_requests SET amount_fulfilled = ? WHERE id = ?";
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setInt(1, fulfilledAmount);
             pstmt.setInt(2, id);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.info("구매 요청 ID " + id + "의 이행 수량이 " + fulfilledAmount + "로 업데이트되었습니다.");
-                return true;
-            }
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             log.log(Level.SEVERE, "ID " + id + "의 구매 요청 이행 수량을 MariaDB에서 업데이트할 수 없습니다!", e);
         }
@@ -759,11 +688,7 @@ public class DatabaseManager {
         try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
             pstmt.setString(1, newStatus);
             pstmt.setInt(2, id);
-            int affectedRows = pstmt.executeUpdate();
-            if (affectedRows > 0) {
-                log.info("구매 요청 ID " + id + "의 상태가 " + newStatus + "로 업데이트되었습니다.");
-                return true;
-            }
+            return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             log.log(Level.SEVERE, "ID " + id + "의 구매 요청 상태를 MariaDB에서 업데이트할 수 없습니다!", e);
         }
@@ -780,8 +705,9 @@ public class DatabaseManager {
             int amountRequested = rs.getInt("amount_requested");
             int amountFulfilled = rs.getInt("amount_fulfilled");
             long requestTimestamp = rs.getLong("request_timestamp");
+            long expiryTimestamp = rs.getLong("expiry_timestamp");
             String status = rs.getString("status");
-            return new BuyRequest(id, requesterUuid, requesterName, itemStack, pricePerItem, amountRequested, amountFulfilled, requestTimestamp, status);
+            return new BuyRequest(id, requesterUuid, requesterName, itemStack, pricePerItem, amountRequested, amountFulfilled, requestTimestamp, expiryTimestamp, status);
         } catch (IOException | ClassNotFoundException e) {
             log.log(Level.SEVERE, "BuyRequest ID: " + rs.getInt("id") + "의 ItemStack을 데이터베이스에서 역직렬화하는 데 실패했습니다!", e);
             return null;
@@ -809,7 +735,6 @@ public class DatabaseManager {
                 try (ResultSet rs = pstmt.getGeneratedKeys()) {
                     if (rs.next()) {
                         generatedId = rs.getInt(1);
-                        log.info("거래가 ID " + generatedId + "로 성공적으로 저장되었습니다.");
                     }
                 }
             }
@@ -830,13 +755,46 @@ public class DatabaseManager {
             pstmt.setLong(3, endTime);
             try (ResultSet rs = pstmt.executeQuery()) {
                 while (rs.next()) {
-                    transactions.add(transactionFromResultSet(rs));
+                    Transaction transaction = transactionFromResultSet(rs);
+                    if (transaction != null) {
+                        transactions.add(transaction);
+                    }
                 }
             }
         } catch (SQLException e) {
             log.log(Level.SEVERE, "해시 " + itemHash + "의 거래 기록을 조회할 수 없습니다!", e);
         }
         return transactions;
+    }
+
+    public List<DailyPriceInfo> getDailyPriceInfo(String itemHash, int days) {
+        List<DailyPriceInfo> dailyInfos = new ArrayList<>();
+        long startTime = System.currentTimeMillis() - (long) days * 24 * 60 * 60 * 1000;
+        String sql = "SELECT " +
+                "  DATE(FROM_UNIXTIME(transaction_timestamp / 1000)) AS transaction_date, " +
+                "  AVG(price_per_item) AS avg_price, " +
+                "  SUM(amount) AS total_amount " +
+                "FROM shop_transactions " +
+                "WHERE item_hash = ? AND transaction_timestamp >= ? " +
+                "GROUP BY transaction_date " +
+                "ORDER BY transaction_date DESC";
+
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, itemHash);
+            pstmt.setLong(2, startTime);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    dailyInfos.add(new DailyPriceInfo(
+                            rs.getDate("transaction_date"),
+                            rs.getDouble("avg_price"),
+                            rs.getInt("total_amount")
+                    ));
+                }
+            }
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "해시 " + itemHash + "의 일일 시세 정보를 조회할 수 없습니다!", e);
+        }
+        return dailyInfos;
     }
 
     private Transaction transactionFromResultSet(ResultSet rs) throws SQLException {
@@ -857,5 +815,85 @@ public class DatabaseManager {
             log.log(Level.SEVERE, "Transaction ID: " + rs.getInt("id") + "의 ItemStack을 데이터베이스에서 역직렬화하는 데 실패했습니다!", e);
             return null;
         }
+    }
+
+    public List<AuctionItem> getAuctionItemsByHash(String itemHash) {
+        List<AuctionItem> items = new ArrayList<>();
+        String sql = "SELECT * FROM shop_auctions WHERE item_hash = ? AND status = 'ACTIVE' AND end_timestamp > ? ORDER BY current_bid ASC";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, itemHash);
+            pstmt.setLong(2, System.currentTimeMillis());
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    AuctionItem item = auctionItemFromResultSet(rs);
+                    if (item != null) {
+                        items.add(item);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "해시 " + itemHash + "의 활성 경매 아이템을 MariaDB에서 조회할 수 없습니다!", e);
+        }
+        return items;
+    }
+
+    public List<BuyRequest> getBuyRequestsByHash(String itemHash) {
+        List<BuyRequest> requests = new ArrayList<>();
+        String sql = "SELECT * FROM shop_buy_requests WHERE item_hash = ? AND status = 'ACTIVE' AND amount_fulfilled < amount_requested AND expiry_timestamp > ? ORDER BY price_per_item DESC";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, itemHash);
+            pstmt.setLong(2, System.currentTimeMillis());
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    BuyRequest request = buyRequestFromResultSet(rs);
+                    if (request != null) {
+                        requests.add(request);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "해시 " + itemHash + "의 활성 구매 요청을 MariaDB에서 조회할 수 없습니다!", e);
+        }
+        return requests;
+    }
+
+    public List<Transaction> getTransactionsByBuyer(UUID buyerUuid, int limit) {
+        List<Transaction> transactions = new ArrayList<>();
+        String sql = "SELECT * FROM shop_transactions WHERE buyer_uuid = ? ORDER BY transaction_timestamp DESC LIMIT ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, buyerUuid.toString());
+            pstmt.setInt(2, limit);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    Transaction transaction = transactionFromResultSet(rs);
+                    if (transaction != null) {
+                        transactions.add(transaction);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "구매자 " + buyerUuid + "의 거래 기록을 조회할 수 없습니다!", e);
+        }
+        return transactions;
+    }
+
+    public List<Transaction> getTransactionsBySeller(UUID sellerUuid, int limit) {
+        List<Transaction> transactions = new ArrayList<>();
+        String sql = "SELECT * FROM shop_transactions WHERE seller_uuid = ? ORDER BY transaction_timestamp DESC LIMIT ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, sellerUuid.toString());
+            pstmt.setInt(2, limit);
+            try (ResultSet rs = pstmt.executeQuery()) {
+                while (rs.next()) {
+                    Transaction transaction = transactionFromResultSet(rs);
+                    if (transaction != null) {
+                        transactions.add(transaction);
+                    }
+                }
+            }
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "판매자 " + sellerUuid + "의 거래 기록을 조회할 수 없습니다!", e);
+        }
+        return transactions;
     }
 }

@@ -1,19 +1,29 @@
 package rang.games.rangUserShop;
 
+import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.OfflinePlayer;
+import org.bukkit.entity.Player;
+import org.bukkit.inventory.ItemStack;
 import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
+import rang.games.languageUtil.LanguageAPI;
 import rang.games.rangGiftBox.api.GiftBoxAPI;
 import rang.games.rangUserShop.api.UserShopAPI;
 import rang.games.rangUserShop.api.UserShopAPIImpl;
 import rang.games.rangUserShop.command.UserShopCommand;
+import rang.games.rangUserShop.data.BuyRequest;
 import rang.games.rangUserShop.data.DatabaseManager;
 import rang.games.rangUserShop.listener.GuiListener;
 import rang.games.rangUserShop.listener.PlayerListener;
 
+import java.text.DecimalFormat;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.logging.Level;
 import java.util.logging.Logger;
 
 public final class RangUserShop extends JavaPlugin {
@@ -26,6 +36,8 @@ public final class RangUserShop extends JavaPlugin {
     private GuiManager guiManager;
     private UserShopAPI userShopAPI;
     private GiftBoxAPI giftBoxAPI;
+    private final DecimalFormat formatter = new DecimalFormat("#,###");
+
 
     public enum SortOrder {
         LATEST("최신순"),
@@ -135,6 +147,7 @@ public final class RangUserShop extends JavaPlugin {
 
         getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
             databaseManager.cleanupExpiredItems();
+            processExpiredBuyRequests();
         }, 0L, 20L * 60 * 5);
 
         getServer().getScheduler().runTaskTimerAsynchronously(this, () -> {
@@ -166,6 +179,74 @@ public final class RangUserShop extends JavaPlugin {
         }
         this.giftBoxAPI = rsp.getProvider();
         log.info("RangGiftBox API와 성공적으로 연동되었습니다.");
+    }
+
+    private void processExpiredBuyRequests() {
+        List<BuyRequest> expiredRequests = databaseManager.getExpiredActiveBuyRequests();
+        for (BuyRequest request : expiredRequests) {
+            double amountToRefund = request.getPricePerItem() * (request.getAmountRequested() - request.getAmountFulfilled());
+
+            if (amountToRefund > 0) {
+                if (economyManager.depositPlayer(request.getRequesterUuid(), amountToRefund)) {
+                    databaseManager.updateBuyRequestStatus(request.getId(), "EXPIRED");
+
+                    OfflinePlayer requester = Bukkit.getOfflinePlayer(request.getRequesterUuid());
+                    if (requester.isOnline()) {
+                        requester.getPlayer().sendMessage(ChatColor.YELLOW + "구매 요청하신 아이템(" + LanguageAPI.getItemName(request.getItemStack()) + ")이 만료되어 " + formatter.format(amountToRefund) + "원이 환불되었습니다.");
+                    }
+                } else {
+                    log.warning("만료된 구매 요청(ID: " + request.getId() + ")의 금액 환불에 실패했습니다. 요청자: " + request.getRequesterUuid() + ", 환불액: " + amountToRefund);
+                }
+            } else {
+                databaseManager.updateBuyRequestStatus(request.getId(), "EXPIRED");
+            }
+        }
+    }
+
+    public void giveItemToPlayer(OfflinePlayer player, ItemStack item, String reason) {
+        if (player.isOnline()) {
+            Player onlinePlayer = player.getPlayer();
+            if (onlinePlayer.getInventory().addItem(item).isEmpty()) {
+                onlinePlayer.sendMessage(ChatColor.GREEN + reason + "을(를) 인벤토리로 지급받았습니다.");
+            } else {
+                sendToGiftBoxOrDrop(onlinePlayer, item, reason);
+            }
+        } else {
+            if (giftBoxAPI != null) {
+                long sevenDaysInSeconds = 7 * 24 * 60 * 60;
+                giftBoxAPI.sendGift(player.getUniqueId(), item, "서버 시스템", sevenDaysInSeconds)
+                        .thenRun(() -> getLogger().info("오프라인 플레이어 " + player.getName() + "에게 " + reason + "을(를) 우편함으로 보냈습니다."))
+                        .exceptionally(ex -> {
+                            getLogger().log(Level.SEVERE, "우편함으로 아이템 전송 중 오류 발생 (오프라인 플레이어: " + player.getName() + "): " + ex.getMessage(), ex);
+                            return null;
+                        });
+            } else {
+                getLogger().warning("오프라인 플레이어 " + player.getName() + "에게 아이템을 지급할 수 없습니다 (RangGiftBox API 없음). 수동 지급이 필요합니다: " + item.toString());
+            }
+        }
+    }
+
+    public void sendToGiftBoxOrDrop(Player player, ItemStack item, String reason) {
+        if (giftBoxAPI != null) {
+            long sevenDaysInSeconds = 7 * 24 * 60 * 60;
+            giftBoxAPI.sendGift(player.getUniqueId(), item, "서버 시스템", sevenDaysInSeconds)
+                    .thenRun(() -> {
+                        if (player.isOnline()) {
+                            player.sendMessage(ChatColor.YELLOW + "인벤토리가 가득 차서 " + reason + "이(가) 우편함으로 지급되었습니다.");
+                        }
+                    })
+                    .exceptionally(ex -> {
+                        getLogger().log(Level.SEVERE, "우편함으로 아이템 전송 중 오류 발생 (플레이어: " + player.getName() + "): " + ex.getMessage(), ex);
+                        if (player.isOnline()) {
+                            player.sendMessage(ChatColor.RED + "아이템을 우편함으로 보내는 데 실패했습니다. 아이템이 바닥에 드롭됩니다.");
+                            player.getWorld().dropItemNaturally(player.getLocation(), item);
+                        }
+                        return null;
+                    });
+        } else {
+            player.getWorld().dropItemNaturally(player.getLocation(), item);
+            player.sendMessage(ChatColor.YELLOW + "인벤토리가 가득 차서 " + reason + "이(가) 발밑에 떨어졌습니다.");
+        }
     }
 
     public static RangUserShop getInstance() {

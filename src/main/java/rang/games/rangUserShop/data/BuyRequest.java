@@ -15,9 +15,10 @@ public class BuyRequest {
     private final int amountRequested;
     private int amountFulfilled;
     private final long requestTimestamp;
+    private final long expiryTimestamp;
     private String status;
 
-    public BuyRequest(int id, UUID requesterUuid, String requesterName, ItemStack itemStack, double pricePerItem, int amountRequested, int amountFulfilled, long requestTimestamp, String status) {
+    public BuyRequest(int id, UUID requesterUuid, String requesterName, ItemStack itemStack, double pricePerItem, int amountRequested, int amountFulfilled, long requestTimestamp, long expiryTimestamp, String status) {
         this.id = id;
         this.requesterUuid = requesterUuid;
         this.requesterName = requesterName;
@@ -27,6 +28,7 @@ public class BuyRequest {
         this.amountRequested = amountRequested;
         this.amountFulfilled = amountFulfilled;
         this.requestTimestamp = requestTimestamp;
+        this.expiryTimestamp = expiryTimestamp;
         this.status = status;
     }
 
@@ -64,6 +66,10 @@ public class BuyRequest {
 
     public long getRequestTimestamp() {
         return requestTimestamp;
+    }
+
+    public long getExpiryTimestamp() {
+        return expiryTimestamp;
     }
 
     public String getStatus() {

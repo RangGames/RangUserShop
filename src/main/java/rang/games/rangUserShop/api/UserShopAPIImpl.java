@@ -11,6 +11,7 @@ import rang.games.rangUserShop.util.ItemHashUtil;
 
 import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 public class UserShopAPIImpl implements UserShopAPI {
 
@@ -98,9 +99,7 @@ public class UserShopAPIImpl implements UserShopAPI {
 
         ItemStack purchasedItem = shopItem.getItemStack().clone();
         purchasedItem.setAmount(shopItem.getAmount());
-        if (!buyer.getInventory().addItem(purchasedItem).isEmpty()) {
-            buyer.getWorld().dropItemNaturally(buyer.getLocation(), purchasedItem);
-        }
+        plugin.giveItemToPlayer(buyer, purchasedItem, "상점 구매 아이템");
 
         if (dbManager.updateShopItemStatus(shopItem.getId(), "SOLD")) {
             dbManager.saveTransaction(new Transaction(0, shopItem.getId(), buyer.getUniqueId(), buyer.getName(), shopItem.getSellerUuid(), shopItem.getSellerName(), shopItem.getItemStack(), shopItem.getPrice(), shopItem.getAmount(), System.currentTimeMillis(), "SALE"));
@@ -120,9 +119,7 @@ public class UserShopAPIImpl implements UserShopAPI {
         if (dbManager.updateShopItemStatus(shopItem.getId(), "CANCELLED")) {
             ItemStack cancelledItem = shopItem.getItemStack().clone();
             cancelledItem.setAmount(shopItem.getAmount());
-            if (!player.getInventory().addItem(cancelledItem).isEmpty()) {
-                player.getWorld().dropItemNaturally(player.getLocation(), cancelledItem);
-            }
+            plugin.giveItemToPlayer(player, cancelledItem, "취소된 판매 아이템");
             Bukkit.getPluginManager().callEvent(new ShopItemCancelledEvent(shopItem, player));
             return true;
         }
@@ -187,6 +184,10 @@ public class UserShopAPIImpl implements UserShopAPI {
             return false;
         }
 
+        if (!economyManager.withdrawPlayer(bidder, bidAmount)) {
+            return false;
+        }
+
         if (dbManager.updateAuctionItemBid(auctionItem.getId(), bidAmount, bidder.getUniqueId(), bidder.getName())) {
             dbManager.saveBid(new Bid(0, auctionItem.getId(), bidder.getUniqueId(), bidder.getName(), bidAmount, System.currentTimeMillis()));
             Bukkit.getPluginManager().callEvent(new AuctionBidEvent(auctionItem, bidder, bidAmount));
@@ -194,8 +195,10 @@ public class UserShopAPIImpl implements UserShopAPI {
                 economyManager.depositPlayer(auctionItem.getHighestBidderUuid(), auctionItem.getCurrentBid());
             }
             return true;
+        } else {
+            economyManager.depositPlayer(bidder.getUniqueId(), bidAmount);
+            return false;
         }
-        return false;
     }
 
     @Override
@@ -224,9 +227,7 @@ public class UserShopAPIImpl implements UserShopAPI {
 
         ItemStack purchasedItem = auctionItem.getItemStack().clone();
         purchasedItem.setAmount(1);
-        if (!buyer.getInventory().addItem(purchasedItem).isEmpty()) {
-            buyer.getWorld().dropItemNaturally(buyer.getLocation(), purchasedItem);
-        }
+        plugin.giveItemToPlayer(buyer, purchasedItem, "경매 즉시 구매 아이템");
 
         if (dbManager.updateAuctionItemStatus(auctionItem.getId(), "ENDED")) {
             dbManager.saveTransaction(new Transaction(0, auctionItem.getId(), buyer.getUniqueId(), buyer.getName(), auctionItem.getSellerUuid(), auctionItem.getSellerName(), auctionItem.getItemStack(), buyNowPrice, 1, System.currentTimeMillis(), "AUCTION_PURCHASE"));
@@ -264,16 +265,23 @@ public class UserShopAPIImpl implements UserShopAPI {
         requestedItem.setAmount(1);
 
         long requestTime = System.currentTimeMillis();
+        long expiryTime = requestTime + TimeUnit.DAYS.toMillis(7);
 
-        BuyRequest buyRequest = new BuyRequest(0, requester.getUniqueId(), requester.getName(), requestedItem, pricePerItem, amountRequested, 0, requestTime, "ACTIVE");
+        BuyRequest buyRequest = new BuyRequest(0, requester.getUniqueId(), requester.getName(), requestedItem, pricePerItem, amountRequested, 0, requestTime, expiryTime, "ACTIVE");
+
+        if (!economyManager.withdrawPlayer(requester, totalCost)) {
+            return false;
+        }
+
         int requestId = dbManager.saveBuyRequest(buyRequest);
 
         if (requestId != -1) {
-            economyManager.withdrawPlayer(requester, totalCost);
             Bukkit.getPluginManager().callEvent(new BuyRequestCreatedEvent(buyRequest, requester));
             return true;
+        } else {
+            economyManager.depositPlayer(requester.getUniqueId(), totalCost);
+            return false;
         }
-        return false;
     }
 
     @Override
@@ -356,5 +364,94 @@ public class UserShopAPIImpl implements UserShopAPI {
             totalAmount += tx.getAmount();
         }
         return totalAmount;
+    }
+
+    @Override
+    public List<ShopItem> getShopItemsByItem(ItemStack itemStack) {
+        String itemHash = ItemHashUtil.generateItemHashForComparison(itemStack);
+        return dbManager.getListedItemsByHash(itemHash);
+    }
+
+    @Override
+    public List<AuctionItem> getAuctionItemsByItem(ItemStack itemStack) {
+        String itemHash = ItemHashUtil.generateItemHashForComparison(itemStack);
+        return dbManager.getAuctionItemsByHash(itemHash);
+    }
+
+    @Override
+    public List<BuyRequest> getBuyRequestsByItem(ItemStack itemStack) {
+        String itemHash = ItemHashUtil.generateItemHashForComparison(itemStack);
+        return dbManager.getBuyRequestsByHash(itemHash);
+    }
+
+    @Override
+    public List<Transaction> getPlayerPurchaseHistory(UUID playerUuid, int limit) {
+        return dbManager.getTransactionsByBuyer(playerUuid, limit);
+    }
+
+    @Override
+    public List<Transaction> getPlayerSalesHistory(UUID playerUuid, int limit) {
+        return dbManager.getTransactionsBySeller(playerUuid, limit);
+    }
+
+    @Override
+    public List<DailyPriceInfo> getDailyPriceInfo(ItemStack itemStack, int days) {
+        String itemHash = ItemHashUtil.generateItemHashForComparison(itemStack);
+        return dbManager.getDailyPriceInfo(itemHash, days);
+    }
+
+    @Override
+    public boolean reclaimSoldOrExpiredItem(Player player, int itemId, ItemType type) {
+        if (type == ItemType.SHOP_ITEM) {
+            ShopItem shopItem = dbManager.getShopItemById(itemId);
+            if (shopItem == null || !shopItem.getSellerUuid().equals(player.getUniqueId()) ||
+                    !(shopItem.getStatus().equals("EXPIRED") || shopItem.getStatus().equals("CANCELLED"))) {
+                return false;
+            }
+
+            ItemStack reclaimedItem = shopItem.getItemStack().clone();
+            reclaimedItem.setAmount(shopItem.getAmount());
+
+            if (dbManager.deleteShopItem(shopItem.getId())) {
+                plugin.giveItemToPlayer(player, reclaimedItem, "회수된 아이템");
+                Bukkit.getPluginManager().callEvent(new ShopItemReclaimedEvent(shopItem, player));
+                return true;
+            }
+        } else if (type == ItemType.AUCTION_ITEM) {
+            AuctionItem auctionItem = dbManager.getAuctionItemById(itemId);
+            if (auctionItem == null) return false;
+
+            boolean canReclaim = false;
+            ItemStack itemToGive = null;
+            String reason = "";
+
+            if (auctionItem.getStatus().equals("ENDED")) {
+                if (auctionItem.getHighestBidderUuid() != null && auctionItem.getHighestBidderUuid().equals(player.getUniqueId())) {
+                    canReclaim = true;
+                    reason = "낙찰받은 경매 아이템";
+                    itemToGive = auctionItem.getItemStack().clone();
+                } else if (auctionItem.getHighestBidderUuid() == null && auctionItem.getSellerUuid().equals(player.getUniqueId())) {
+                    canReclaim = true;
+                    reason = "유찰된 경매 아이템";
+                    itemToGive = auctionItem.getItemStack().clone();
+                }
+            } else if (auctionItem.getStatus().equals("CANCELLED")) {
+                if (auctionItem.getSellerUuid().equals(player.getUniqueId())) {
+                    canReclaim = true;
+                    reason = "취소된 경매 아이템";
+                    itemToGive = auctionItem.getItemStack().clone();
+                }
+            }
+
+            if (!canReclaim) {
+                return false;
+            }
+
+            if (dbManager.updateAuctionItemStatus(auctionItem.getId(), "RECLAIMED")) {
+                plugin.giveItemToPlayer(player, itemToGive, reason);
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -6,8 +6,10 @@ import org.bukkit.Material;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
 import org.bukkit.command.CommandSender;
+import org.bukkit.command.TabCompleter;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
+import rang.games.languageUtil.LanguageAPI;
 import rang.games.rangUserShop.RangUserShop;
 import rang.games.rangUserShop.data.AuctionItem;
 import rang.games.rangUserShop.data.BuyRequest;
@@ -18,9 +20,14 @@ import rang.games.rangUserShop.event.BuyRequestCreatedEvent;
 import rang.games.rangUserShop.event.ShopItemListedEvent;
 
 import java.text.DecimalFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.stream.Collectors;
 
-public class UserShopCommand implements CommandExecutor {
+public class UserShopCommand implements CommandExecutor, TabCompleter {
 
     private final RangUserShop plugin;
     private final DatabaseManager dbManager;
@@ -137,7 +144,7 @@ public class UserShopCommand implements CommandExecutor {
 
         if (itemId != -1) {
             itemInHand.setAmount(itemInHand.getAmount() - amount);
-            player.sendMessage(ChatColor.GREEN + "[ " + toSell.getType().name() + " ] " + amount + "개를 개당 " + formatter.format(price) + "원에 판매 등록했습니다.");
+            player.sendMessage(ChatColor.GREEN + LanguageAPI.getItemName(toSell) + " " + amount + "개를 개당 " + formatter.format(price) + "원에 판매 등록했습니다.");
             if (player.hasPermission("usershop.tax.exempt")) {
                 player.sendMessage(ChatColor.AQUA + "(수수료 면제 혜택이 적용됩니다!)");
             }
@@ -200,7 +207,7 @@ public class UserShopCommand implements CommandExecutor {
 
         if (auctionId != -1) {
             itemInHand.setAmount(0);
-            player.sendMessage(ChatColor.GREEN + "[ " + toAuction.getType().name() + " ] 경매에 등록했습니다. 시작가: " + formatter.format(startPrice) + "원" + (buyNowPrice > 0 ? ", 즉시구매가: " + formatter.format(buyNowPrice) + "원" : ""));
+            player.sendMessage(ChatColor.GREEN + LanguageAPI.getItemName(toAuction) + " 아이템을 경매에 등록했습니다. 시작가: " + formatter.format(startPrice) + "원" + (buyNowPrice > 0 ? ", 즉시구매가: " + formatter.format(buyNowPrice) + "원" : ""));
             plugin.getServer().getPluginManager().callEvent(new AuctionListedEvent(auctionItem, player));
         } else {
             player.sendMessage(ChatColor.RED + "경매 등록에 실패했습니다. 서버 관리자에게 문의하세요.");
@@ -249,8 +256,9 @@ public class UserShopCommand implements CommandExecutor {
         requestedItem.setAmount(1);
 
         long requestTime = System.currentTimeMillis();
+        long expiryTime = requestTime + TimeUnit.DAYS.toMillis(7);
 
-        BuyRequest buyRequest = new BuyRequest(0, player.getUniqueId(), player.getName(), requestedItem, pricePerItem, amountRequested, 0, requestTime, "ACTIVE");
+        BuyRequest buyRequest = new BuyRequest(0, player.getUniqueId(), player.getName(), requestedItem, pricePerItem, amountRequested, 0, requestTime, expiryTime, "ACTIVE");
 
         if (!plugin.getEconomyManager().withdrawPlayer(player, totalCost)) {
             player.sendMessage(ChatColor.RED + "금액을 인출하는 데 실패했습니다. 다시 시도해주세요.");
@@ -260,7 +268,7 @@ public class UserShopCommand implements CommandExecutor {
         int requestId = dbManager.saveBuyRequest(buyRequest);
 
         if (requestId != -1) {
-            player.sendMessage(ChatColor.GREEN + "[ " + requestedItem.getType().name() + " ] " + amountRequested + "개를 개당 " + formatter.format(pricePerItem) + "원에 구매 요청했습니다. 총 " + formatter.format(totalCost) + "원이 예치되었습니다.");
+            player.sendMessage(ChatColor.GREEN + LanguageAPI.getItemName(requestedItem) + " " + amountRequested + "개를 개당 " + formatter.format(pricePerItem) + "원에 구매 요청했습니다. 총 " + formatter.format(totalCost) + "원이 예치되었습니다.");
             plugin.getServer().getPluginManager().callEvent(new BuyRequestCreatedEvent(buyRequest, player));
         } else {
             plugin.getEconomyManager().depositPlayer(player.getUniqueId(), totalCost);
@@ -281,7 +289,7 @@ public class UserShopCommand implements CommandExecutor {
             return true;
         }
 
-        plugin.getGuiManager().handleDetailedPriceInfo(player, itemInHand);
+        plugin.getGuiManager().openDetailedPriceInfoGui(player, itemInHand, 1);
         return true;
     }
 
@@ -325,5 +333,79 @@ public class UserShopCommand implements CommandExecutor {
                 break;
         }
         return true;
+    }
+
+    @Override
+    public List<String> onTabComplete(CommandSender sender, Command command, String alias, String[] args) {
+        if (!(sender instanceof Player)) {
+            return Collections.emptyList();
+        }
+
+        Player player = (Player) sender;
+        List<String> completions = new ArrayList<>();
+
+        if (args.length == 1) {
+            if (player.hasPermission("usershop.sell")) completions.add("판매");
+            if (player.hasPermission("usershop.bid.sell")) completions.add("입찰");
+            if (player.hasPermission("usershop.buyorder")) completions.add("구매요청");
+            if (player.hasPermission("usershop.price")) completions.add("시세");
+            if (player.hasPermission("usershop.manage")) completions.add("관리");
+            if (player.hasPermission("usershop.admin")) completions.add("관리자");
+            completions.add("도움말");
+            completions.add("help");
+        } else if (args.length == 2) {
+            String subCommand = args[0].toLowerCase();
+            switch (subCommand) {
+                case "판매":
+                    if (player.hasPermission("usershop.sell")) {
+                        completions.add("<개당가격>");
+                    }
+                    break;
+                case "입찰":
+                    if (player.hasPermission("usershop.bid.sell")) {
+                        completions.add("<시작가>");
+                    }
+                    break;
+                case "구매요청":
+                    if (player.hasPermission("usershop.buyorder")) {
+                        completions.add("<개당가격>");
+                    }
+                    break;
+                case "관리자":
+                    if (player.hasPermission("usershop.admin")) {
+                        completions.add("reload");
+                        completions.add("cleanup");
+                        completions.add("auctioncleanup");
+                    }
+                    break;
+            }
+        } else if (args.length == 3) {
+            String subCommand = args[0].toLowerCase();
+            switch (subCommand) {
+                case "판매":
+                    if (player.hasPermission("usershop.sell")) {
+                        ItemStack itemInHand = player.getInventory().getItemInMainHand();
+                        if (itemInHand.getType() != Material.AIR) {
+                            completions.add(String.valueOf(itemInHand.getAmount()));
+                        }
+                        completions.add("<수량>");
+                    }
+                    break;
+                case "입찰":
+                    if (player.hasPermission("usershop.bid.sell")) {
+                        completions.add("[즉시구매가]");
+                    }
+                    break;
+                case "구매요청":
+                    if (player.hasPermission("usershop.buyorder")) {
+                        completions.add("<수량>");
+                    }
+                    break;
+            }
+        }
+
+        return completions.stream()
+                .filter(s -> s.toLowerCase().startsWith(args[args.length - 1].toLowerCase()))
+                .collect(Collectors.toList());
     }
 }

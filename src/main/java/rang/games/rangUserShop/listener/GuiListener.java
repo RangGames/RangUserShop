@@ -8,10 +8,10 @@ import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.ClickType;
 import org.bukkit.event.inventory.InventoryClickEvent;
 import org.bukkit.inventory.ItemStack;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import rang.games.rangUserShop.GuiManager;
 import rang.games.rangUserShop.RangUserShop;
-
-import java.util.UUID;
 
 public class GuiListener implements Listener {
 
@@ -57,12 +57,21 @@ public class GuiListener implements Listener {
         } else if (rawTitle.startsWith("구매 요청 이행")) {
             handleBuyRequestFulfillGuiClick(player, clickedItem, slot);
         } else if (rawTitle.startsWith("최저가 목록")) {
+            guiManager.handleMainShopItemClick(player, clickedItem, event.getClick());
+        } else if (rawTitle.startsWith("상세 시세 정보")) {
+            handlePriceInfoGuiClick(player, clickedItem, slot);
         }
     }
 
     private void handleMainShopClick(Player player, ItemStack clickedItem, int slot, ClickType clickType) {
         if (slot >= GuiManager.GUI_ITEM_SLOTS_START && slot <= GuiManager.GUI_ITEM_SLOTS_END) {
-            guiManager.handleMainShopItemClick(player, clickedItem, clickType);
+            if (clickType == ClickType.DROP || clickType == ClickType.CONTROL_DROP) {
+                if (player.hasPermission("usershop.admin")) {
+                    guiManager.handleAdminRemoveItem(player, clickedItem);
+                }
+            } else {
+                guiManager.handleMainShopItemClick(player, clickedItem, clickType);
+            }
             return;
         }
 
@@ -97,13 +106,32 @@ public class GuiListener implements Listener {
                 break;
             case GuiManager.MAIN_SEARCH_HELP_SLOT:
                 if (clickType.isShiftClick() && clickType.isLeftClick()) {
-                    UUID filterSellerUuid = plugin.getPlayerFilterSellerUuid(player.getUniqueId());
-                    if (filterSellerUuid != null) {
+                    boolean wasSellerFilterActive = plugin.getPlayerFilterSellerUuid(player.getUniqueId()) != null;
+                    boolean wasSearchTermActive = plugin.getPlayerSearchTerm(player.getUniqueId()) != null;
+
+                    boolean filterCleared = false;
+                    if (wasSellerFilterActive) {
                         plugin.setPlayerFilterSellerUuid(player.getUniqueId(), null);
-                        player.sendMessage(ChatColor.GREEN + "판매자 필터가 초기화되었습니다.");
+                        filterCleared = true;
+                    }
+                    if (wasSearchTermActive) {
+                        plugin.setPlayerSearchTerm(player.getUniqueId(), null);
+                        filterCleared = true;
+                    }
+
+                    if (filterCleared) {
+                        StringBuilder message = new StringBuilder(ChatColor.GREEN + "필터가 초기화되었습니다: ");
+                        if (wasSellerFilterActive && wasSearchTermActive) {
+                            message.append("판매자 및 검색어 필터");
+                        } else if (wasSellerFilterActive) {
+                            message.append("판매자 필터");
+                        } else if (wasSearchTermActive) {
+                            message.append("검색어 필터");
+                        }
+                        player.sendMessage(message.toString());
                         guiManager.openMainShop(player, currentTab, 1);
                     } else {
-                        player.sendMessage(ChatColor.YELLOW + "활성화된 판매자 필터가 없습니다.");
+                        player.sendMessage(ChatColor.YELLOW + "활성화된 필터가 없습니다.");
                     }
                 } else if (clickType.isLeftClick()) {
                     guiManager.openSearchGui(player);
@@ -149,7 +177,7 @@ public class GuiListener implements Listener {
                 guiManager.openManagementGui(player, RangUserShop.ManagementTab.STORAGE_INFO, 1);
                 break;
             case GuiManager.MANAGEMENT_BACK_TO_MAIN_SLOT:
-                guiManager.openMainShop(player, plugin.getPlayerCurrentMainTab(player.getUniqueId()), plugin.getPlayerCurrentPage(player.getUniqueId()));
+                guiManager.openMainShop(player, plugin.getPlayerCurrentMainTab(player.getUniqueId()), 1);
                 break;
         }
     }
@@ -229,6 +257,38 @@ public class GuiListener implements Listener {
                     player.sendMessage(ChatColor.YELLOW + "판매를 취소했습니다.");
                     guiManager.openMainShop(player, RangUserShop.MainGuiTab.BUY_REQUESTS, plugin.getPlayerCurrentPage(player.getUniqueId()));
                 }
+                break;
+        }
+    }
+
+    private void handlePriceInfoGuiClick(Player player, ItemStack clickedItem, int slot) {
+        ItemStack displayItem = player.getOpenInventory().getTopInventory().getItem(4);
+        if (displayItem == null) {
+            player.closeInventory();
+            return;
+        }
+
+        int currentPage = 1;
+        if (clickedItem.hasItemMeta()) {
+            PersistentDataContainer container = clickedItem.getItemMeta().getPersistentDataContainer();
+            if (container.has(guiManager.priceInfoPageKey, PersistentDataType.INTEGER)) {
+                currentPage = container.get(guiManager.priceInfoPageKey, PersistentDataType.INTEGER);
+            }
+        }
+
+        switch (slot) {
+            case 48:
+                if (clickedItem.getType() == Material.ARROW) {
+                    guiManager.openDetailedPriceInfoGui(player, displayItem, currentPage - 1);
+                }
+                break;
+            case 50:
+                if (clickedItem.getType() == Material.ARROW) {
+                    guiManager.openDetailedPriceInfoGui(player, displayItem, currentPage + 1);
+                }
+                break;
+            case 53:
+                guiManager.openMainShop(player, plugin.getPlayerCurrentMainTab(player.getUniqueId()), plugin.getPlayerCurrentPage(player.getUniqueId()));
                 break;
         }
     }

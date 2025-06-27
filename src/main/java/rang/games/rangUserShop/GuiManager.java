@@ -11,14 +11,14 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
-import rang.games.rangGiftBox.api.GiftBoxAPI;
+import rang.games.languageUtil.LanguageAPI;
 import rang.games.rangUserShop.data.*;
 import rang.games.rangUserShop.event.*;
 import rang.games.rangUserShop.util.ItemHashUtil;
 
 import java.text.DecimalFormat;
+import java.text.SimpleDateFormat;
 import java.util.*;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -31,12 +31,9 @@ public class GuiManager {
 
     public static final String GUI_PREFIX = ChatColor.DARK_AQUA + "[유저상점] ";
 
-    public static final int GUI_ROW_SIZE = 9;
     public static final int GUI_FULL_SIZE = 54;
     public static final int GUI_ITEM_SLOTS_START = 0;
     public static final int GUI_ITEM_SLOTS_END = 44;
-    public static final int GUI_NAV_START_SLOT = 45;
-    public static final int GUI_NAV_END_SLOT = 53;
 
     public static final int MAIN_TAB_SHOP_SLOT = 45;
     public static final int MAIN_TAB_AUCTION_SLOT = 46;
@@ -47,7 +44,6 @@ public class GuiManager {
     public static final int MAIN_REFRESH_SLOT = 51;
     public static final int MAIN_SEARCH_HELP_SLOT = 52;
     public static final int MAIN_SORT_SLOT = 53;
-
 
     public static final int PURCHASE_CONFIRM_GUI_SIZE = 9;
     public static final int PURCHASE_DISPLAY_ITEM_SLOT = 4;
@@ -79,16 +75,16 @@ public class GuiManager {
     public static final int MANAGEMENT_PAGE_INFO_SLOT = 46;
     public static final int MANAGEMENT_NEXT_PAGE_SLOT = 47;
 
-
     private final RangUserShop plugin;
     private final DatabaseManager dbManager;
     private final EconomyManager economyManager;
-    private final GiftBoxAPI giftBoxAPI;
     private final DecimalFormat formatter = new DecimalFormat("#,###");
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy.MM.dd HH:mm");
     private final NamespacedKey shopItemIdKey;
     private final NamespacedKey auctionItemIdKey;
     private final NamespacedKey buyRequestIdKey;
     private final NamespacedKey shopSellerUuidKey;
+    public final NamespacedKey priceInfoPageKey;
 
     private final Map<UUID, ManagementTab> playerCurrentManagementTab = new HashMap<>();
 
@@ -96,11 +92,11 @@ public class GuiManager {
         this.plugin = plugin;
         this.dbManager = plugin.getDatabaseManager();
         this.economyManager = plugin.getEconomyManager();
-        this.giftBoxAPI = plugin.getGiftBoxAPI();
         this.shopItemIdKey = new NamespacedKey(plugin, "shop_item_id");
         this.auctionItemIdKey = new NamespacedKey(plugin, "auction_item_id");
         this.buyRequestIdKey = new NamespacedKey(plugin, "buy_request_id");
         this.shopSellerUuidKey = new NamespacedKey(plugin, "shop_seller_uuid");
+        this.priceInfoPageKey = new NamespacedKey(plugin, "price_info_page");
     }
 
     public ManagementTab getPlayerCurrentManagementTab(UUID uuid) {
@@ -126,6 +122,7 @@ public class GuiManager {
                         shopItems = shopItems.stream()
                                 .filter(item -> item.getItemStack().getType().name().toLowerCase().contains(lowerCaseSearchTerm) ||
                                         (item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() && ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()).toLowerCase().contains(lowerCaseSearchTerm)) ||
+                                        LanguageAPI.getItemName(item.getItemStack()).toLowerCase().contains(lowerCaseSearchTerm) ||
                                         item.getSellerName().toLowerCase().contains(lowerCaseSearchTerm))
                                 .collect(Collectors.toList());
                     }
@@ -146,6 +143,7 @@ public class GuiManager {
                         auctionItems = auctionItems.stream()
                                 .filter(item -> item.getItemStack().getType().name().toLowerCase().contains(lowerCaseSearchTerm) ||
                                         (item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() && ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()).toLowerCase().contains(lowerCaseSearchTerm)) ||
+                                        LanguageAPI.getItemName(item.getItemStack()).toLowerCase().contains(lowerCaseSearchTerm) ||
                                         item.getSellerName().toLowerCase().contains(lowerCaseSearchTerm))
                                 .collect(Collectors.toList());
                     }
@@ -165,6 +163,7 @@ public class GuiManager {
                         buyRequests = buyRequests.stream()
                                 .filter(item -> item.getItemStack().getType().name().toLowerCase().contains(lowerCaseSearchTerm) ||
                                         (item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() && ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()).toLowerCase().contains(lowerCaseSearchTerm)) ||
+                                        LanguageAPI.getItemName(item.getItemStack()).toLowerCase().contains(lowerCaseSearchTerm) ||
                                         item.getRequesterName().toLowerCase().contains(lowerCaseSearchTerm))
                                 .collect(Collectors.toList());
                     }
@@ -206,11 +205,11 @@ public class GuiManager {
                 if (itemIndex < itemsToDisplay.size()) {
                     Object item = itemsToDisplay.get(itemIndex);
                     if (item instanceof ShopItem) {
-                        gui.setItem(i, createDisplayItem((ShopItem) item));
+                        gui.setItem(i, createDisplayItem((ShopItem) item, player));
                     } else if (item instanceof AuctionItem) {
-                        gui.setItem(i, createDisplayItem((AuctionItem) item));
+                        gui.setItem(i, createDisplayItem((AuctionItem) item, player));
                     } else if (item instanceof BuyRequest) {
-                        gui.setItem(i, createDisplayItem((BuyRequest) item));
+                        gui.setItem(i, createDisplayItem((BuyRequest) item, player));
                     }
                 }
             }
@@ -297,10 +296,10 @@ public class GuiManager {
                 lore.addAll(meta.getLore());
                 lore.add(" ");
             }
-            lore.add(ChatColor.AQUA + "판매자: " + ChatColor.WHITE + item.getSellerName());
-            lore.add(ChatColor.AQUA + "개당 가격: " + ChatColor.WHITE + formatter.format(item.getPrice()) + "원");
-            lore.add(ChatColor.AQUA + "총 수량: " + ChatColor.WHITE + item.getAmount() + "개");
-            lore.add(ChatColor.AQUA + "총 가격: " + ChatColor.WHITE + formatter.format(item.getPrice() * item.getAmount()) + "원");
+            lore.add(ChatColor.GRAY + "판매자: " + ChatColor.WHITE + item.getSellerName());
+            lore.add(ChatColor.GRAY + "개당 가격: " + ChatColor.WHITE + formatter.format(item.getPrice()) + "원");
+            lore.add(ChatColor.GRAY + "총 수량: " + ChatColor.WHITE + item.getAmount() + "개");
+            lore.add(ChatColor.GRAY + "총 가격: " + ChatColor.WHITE + formatter.format(item.getPrice() * item.getAmount()) + "원");
             meta.setLore(lore);
             meta.getPersistentDataContainer().set(shopItemIdKey, PersistentDataType.INTEGER, item.getId());
             displayItem.setItemMeta(meta);
@@ -308,7 +307,7 @@ public class GuiManager {
         gui.setItem(PURCHASE_DISPLAY_ITEM_SLOT, displayItem);
 
         double playerBalance = economyManager.getBalance(player);
-        gui.setItem(PLAYER_BALANCE_SLOT, createNavItem(Material.GOLD_INGOT, ChatColor.YELLOW + "내 잔액", ChatColor.WHITE + formatter.format(playerBalance) + "원"));
+        gui.setItem(PLAYER_BALANCE_SLOT, createNavItem(Material.GOLD_INGOT, ChatColor.WHITE + "내 잔액", ChatColor.GRAY + formatter.format(playerBalance) + "원"));
 
         ItemStack confirmButton = createNavItem(Material.LIME_WOOL, ChatColor.GREEN + "구매 확정", ChatColor.GRAY + "클릭하여 아이템을 구매합니다.");
         gui.setItem(CONFIRM_PURCHASE_SLOT, confirmButton);
@@ -349,24 +348,25 @@ public class GuiManager {
                 lore.addAll(meta.getLore());
                 lore.add(" ");
             }
-            lore.add(ChatColor.AQUA + "판매자: " + ChatColor.WHITE + item.getSellerName());
-            lore.add(ChatColor.AQUA + "시작가: " + ChatColor.WHITE + formatter.format(item.getStartPrice()) + "원");
-            lore.add(ChatColor.AQUA + "남은 시간: " + ChatColor.WHITE + formatDuration(item.getEndTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.GRAY + "판매자: " + ChatColor.WHITE + item.getSellerName());
+            lore.add(ChatColor.GRAY + "시작가: " + ChatColor.WHITE + formatter.format(item.getStartPrice()) + "원");
+            lore.add(ChatColor.GRAY + "남은 시간: " + ChatColor.WHITE + formatDuration(item.getEndTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.DARK_GRAY + "종료 일시: " + dateFormat.format(new Date(item.getEndTimestamp())));
             meta.setLore(lore);
             meta.getPersistentDataContainer().set(auctionItemIdKey, PersistentDataType.INTEGER, item.getId());
             displayItem.setItemMeta(meta);
         }
         gui.setItem(AUCTION_DISPLAY_ITEM_SLOT, displayItem);
 
-        gui.setItem(AUCTION_CURRENT_BID_SLOT, createNavItem(Material.GOLD_NUGGET, ChatColor.YELLOW + "현재 최고 입찰가", ChatColor.WHITE + formatter.format(item.getCurrentBid()) + "원", (item.getHighestBidderName() != null ? ChatColor.GRAY + "입찰자: " + item.getHighestBidderName() : "")));
-        gui.setItem(AUCTION_YOUR_BALANCE_SLOT, createNavItem(Material.GOLD_INGOT, ChatColor.YELLOW + "내 잔액", ChatColor.WHITE + formatter.format(economyManager.getBalance(player)) + "원"));
+        gui.setItem(AUCTION_CURRENT_BID_SLOT, createNavItem(Material.GOLD_NUGGET, ChatColor.WHITE + "현재 최고 입찰가", ChatColor.GRAY + formatter.format(item.getCurrentBid()) + "원", (item.getHighestBidderName() != null ? ChatColor.DARK_GRAY + "입찰자: " + item.getHighestBidderName() : "")));
+        gui.setItem(AUCTION_YOUR_BALANCE_SLOT, createNavItem(Material.GOLD_INGOT, ChatColor.WHITE + "내 잔액", ChatColor.GRAY + formatter.format(economyManager.getBalance(player)) + "원"));
 
         gui.setItem(AUCTION_PLACE_BID_SLOT, createNavItem(Material.LIME_WOOL, ChatColor.GREEN + "입찰하기", ChatColor.GRAY + "클릭하여 입찰가를 입력합니다."));
 
         if (item.getBuyNowPrice() > 0) {
-            gui.setItem(AUCTION_BUY_NOW_SLOT, createNavItem(Material.GOLD_BLOCK, ChatColor.YELLOW + "즉시 구매하기", ChatColor.WHITE + formatter.format(item.getBuyNowPrice()) + "원", ChatColor.GRAY + "클릭하여 즉시 구매합니다."));
+            gui.setItem(AUCTION_BUY_NOW_SLOT, createNavItem(Material.GOLD_BLOCK, ChatColor.WHITE + "즉시 구매하기", ChatColor.GRAY + formatter.format(item.getBuyNowPrice()) + "원", ChatColor.AQUA + "클릭하여 즉시 구매합니다."));
         } else {
-            gui.setItem(AUCTION_BUY_NOW_SLOT, createNavItem(Material.BARRIER, ChatColor.RED + "즉시 구매 불가", ""));
+            gui.setItem(AUCTION_BUY_NOW_SLOT, createNavItem(Material.BARRIER, ChatColor.RED + "즉시 구매 불가", ChatColor.GRAY + ""));
         }
 
         gui.setItem(AUCTION_CANCEL_SLOT, createNavItem(Material.RED_WOOL, ChatColor.RED + "취소", ChatColor.GRAY + "클릭하여 돌아갑니다."));
@@ -386,24 +386,26 @@ public class GuiManager {
                 lore.addAll(meta.getLore());
                 lore.add(" ");
             }
-            lore.add(ChatColor.AQUA + "요청자: " + ChatColor.WHITE + request.getRequesterName());
-            lore.add(ChatColor.AQUA + "개당 가격: " + ChatColor.WHITE + formatter.format(request.getPricePerItem()) + "원");
-            lore.add(ChatColor.AQUA + "요청 수량: " + ChatColor.WHITE + request.getAmountRequested() + "개");
-            lore.add(ChatColor.AQUA + "남은 수량: " + ChatColor.WHITE + (request.getAmountRequested() - request.getAmountFulfilled()) + "개");
+            lore.add(ChatColor.GRAY + "요청자: " + ChatColor.WHITE + request.getRequesterName());
+            lore.add(ChatColor.GRAY + "개당 가격: " + ChatColor.WHITE + formatter.format(request.getPricePerItem()) + "원");
+            lore.add(ChatColor.GRAY + "요청 수량: " + ChatColor.WHITE + request.getAmountRequested() + "개");
+            lore.add(ChatColor.GRAY + "남은 수량: " + ChatColor.WHITE + (request.getAmountRequested() - request.getAmountFulfilled()) + "개");
+            lore.add(ChatColor.GRAY + "남은 시간: " + ChatColor.WHITE + formatDuration(request.getExpiryTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.DARK_GRAY + "만료 일시: " + dateFormat.format(new Date(request.getExpiryTimestamp())));
             meta.setLore(lore);
             meta.getPersistentDataContainer().set(buyRequestIdKey, PersistentDataType.INTEGER, request.getId());
             displayItem.setItemMeta(meta);
         }
         gui.setItem(BUY_REQUEST_DISPLAY_ITEM_SLOT, displayItem);
 
-        gui.setItem(BUY_REQUEST_INFO_SLOT, createNavItem(Material.PAPER, ChatColor.YELLOW + "판매 정보",
-                ChatColor.AQUA + "내 인벤토리에서 아이템이 차감됩니다.",
-                ChatColor.AQUA + "즉시 대금이 지급됩니다."));
+        gui.setItem(BUY_REQUEST_INFO_SLOT, createNavItem(Material.PAPER, ChatColor.WHITE + "판매 정보",
+                ChatColor.GRAY + "내 인벤토리에서 아이템이 차감됩니다.",
+                ChatColor.GRAY + "즉시 대금이 지급됩니다."));
 
         gui.setItem(BUY_REQUEST_FULFILL_ALL_SLOT, createNavItem(Material.LIME_WOOL, ChatColor.GREEN + "모두 판매하기",
                 ChatColor.GRAY + "남은 수량(" + (request.getAmountRequested() - request.getAmountFulfilled()) + "개)을 모두 판매합니다."));
 
-        gui.setItem(BUY_REQUEST_FULFILL_PARTIAL_SLOT, createNavItem(Material.YELLOW_WOOL, ChatColor.YELLOW + "일부 판매하기",
+        gui.setItem(BUY_REQUEST_FULFILL_PARTIAL_SLOT, createNavItem(Material.YELLOW_WOOL, ChatColor.WHITE + "일부 판매하기",
                 ChatColor.GRAY + "클릭하여 판매할 수량을 입력합니다."));
 
         gui.setItem(BUY_REQUEST_CANCEL_SLOT, createNavItem(Material.RED_WOOL, ChatColor.RED + "취소", ChatColor.GRAY + "클릭하여 돌아갑니다."));
@@ -417,16 +419,16 @@ public class GuiManager {
             List<ShopItem> items = dbManager.getListedItemsByHash(itemHash);
             int size = (int) (Math.ceil(items.size() / 9.0) * 9);
             if (size == 0) {
-                player.sendMessage(ChatColor.YELLOW + itemStack.getType().name() + "의 판매 중인 매물을 찾을 수 없습니다.");
+                player.sendMessage(ChatColor.YELLOW + LanguageAPI.getItemName(itemStack) + "의 판매 중인 매물을 찾을 수 없습니다.");
                 return;
             }
             size = Math.min(size, 54);
 
-            String title = GUI_PREFIX + "최저가 목록 - " + (itemStack.hasItemMeta() && itemStack.getItemMeta().hasDisplayName() ? itemStack.getItemMeta().getDisplayName() : itemStack.getType().name());
+            String title = GUI_PREFIX + "최저가 목록 - " + LanguageAPI.getItemName(itemStack);
             Inventory gui = Bukkit.createInventory(null, size, title);
 
             for (int i = 0; i < items.size() && i < 54; i++) {
-                gui.setItem(i, createDisplayItem(items.get(i)));
+                gui.setItem(i, createDisplayItem(items.get(i), player));
             }
 
             Bukkit.getScheduler().runTask(plugin, () -> player.openInventory(gui));
@@ -520,11 +522,7 @@ public class GuiManager {
                     openMainShop(player, currentTab, plugin.getPlayerCurrentPage(player.getUniqueId()));
                     return;
                 }
-                if (clickType.isLeftClick()) {
-                    openPurchaseConfirmGui(player, shopItem);
-                } else if (clickType.isRightClick()) {
-                    openLowestPriceListGui(player, shopItem.getItemStack());
-                } else if (clickType.isShiftClick() && clickType.isRightClick()) {
+                if (clickType.isShiftClick() && clickType.isRightClick()) {
                     UUID sellerUuid = extractSellerUuid(clickedItem);
                     if (sellerUuid != null) {
                         plugin.setPlayerFilterSellerUuid(player.getUniqueId(), sellerUuid);
@@ -534,8 +532,12 @@ public class GuiManager {
                     } else {
                         player.sendMessage(ChatColor.RED + "판매자 정보를 찾을 수 없습니다.");
                     }
-                } else if (clickType.isShiftClick()) {
-                    handleDetailedPriceInfo(player, shopItem.getItemStack());
+                } else if (clickType.isShiftClick() && clickType.isLeftClick()) {
+                    openDetailedPriceInfoGui(player, shopItem.getItemStack(), 1);
+                } else if (clickType.isLeftClick()) {
+                    openPurchaseConfirmGui(player, shopItem);
+                } else if (clickType.isRightClick()) {
+                    openLowestPriceListGui(player, shopItem.getItemStack());
                 }
                 break;
             case AUCTION:
@@ -547,11 +549,7 @@ public class GuiManager {
                     openMainShop(player, currentTab, plugin.getPlayerCurrentPage(player.getUniqueId()));
                     return;
                 }
-                if (clickType.isLeftClick()) {
-                    openAuctionBidGui(player, auctionItem);
-                } else if (clickType.isRightClick() && auctionItem.getBuyNowPrice() > 0) {
-                    handleAuctionBuyNow(player, clickedItem);
-                } else if (clickType.isShiftClick() && clickType.isRightClick()) {
+                if (clickType.isShiftClick() && clickType.isRightClick()) {
                     UUID sellerUuid = extractSellerUuid(clickedItem);
                     if (sellerUuid != null) {
                         plugin.setPlayerFilterSellerUuid(player.getUniqueId(), sellerUuid);
@@ -561,20 +559,26 @@ public class GuiManager {
                     } else {
                         player.sendMessage(ChatColor.RED + "판매자 정보를 찾을 수 없습니다.");
                     }
+                } else if (clickType.isLeftClick()) {
+                    openAuctionBidGui(player, auctionItem);
+                } else if (clickType.isRightClick() && auctionItem.getBuyNowPrice() > 0) {
+                    handleAuctionBuyNow(player, clickedItem);
                 }
                 break;
             case BUY_REQUESTS:
                 int buyRequestId = extractBuyRequestId(clickedItem);
                 if (buyRequestId == -1) return;
                 BuyRequest buyRequest = dbManager.getBuyRequestById(buyRequestId);
-                if (buyRequest == null || !buyRequest.getStatus().equals("ACTIVE") || buyRequest.getAmountFulfilled() >= buyRequest.getAmountRequested()) {
+                if (buyRequest == null || !buyRequest.getStatus().equals("ACTIVE") || buyRequest.getAmountFulfilled() >= buyRequest.getAmountRequested() || buyRequest.getExpiryTimestamp() <= System.currentTimeMillis()) {
                     player.sendMessage(ChatColor.RED + "만료되었거나 이미 완료된 구매 요청입니다.");
                     openMainShop(player, currentTab, plugin.getPlayerCurrentPage(player.getUniqueId()));
                     return;
                 }
-                if (clickType.isLeftClick()) {
-                    openBuyRequestFulfillGui(player, buyRequest);
-                } else if (clickType.isShiftClick() && clickType.isRightClick()) {
+                if (buyRequest.getRequesterUuid().equals(player.getUniqueId())) {
+                    player.sendMessage(ChatColor.RED + "당신의 구매 요청입니다.");
+                    return;
+                }
+                if (clickType.isShiftClick() && clickType.isRightClick()) {
                     UUID requesterUuid = extractSellerUuid(clickedItem);
                     if (requesterUuid != null) {
                         plugin.setPlayerFilterSellerUuid(player.getUniqueId(), requesterUuid);
@@ -584,6 +588,8 @@ public class GuiManager {
                     } else {
                         player.sendMessage(ChatColor.RED + "요청자 정보를 찾을 수 없습니다.");
                     }
+                } else if (clickType.isLeftClick()) {
+                    openBuyRequestFulfillGui(player, buyRequest);
                 }
                 break;
         }
@@ -677,14 +683,14 @@ public class GuiManager {
         ItemStack purchasedItem = shopItem.getItemStack().clone();
         purchasedItem.setAmount(shopItem.getAmount());
 
-        giveItemToPlayer(buyer, purchasedItem, "상점 구매 아이템");
+        plugin.giveItemToPlayer(buyer, purchasedItem, "상점 구매 아이템");
 
         if (dbManager.updateShopItemStatus(shopItem.getId(), "SOLD")) {
             dbManager.saveTransaction(new Transaction(0, shopItem.getId(), buyer.getUniqueId(), buyer.getName(), shopItem.getSellerUuid(), shopItem.getSellerName(), shopItem.getItemStack(), shopItem.getPrice(), shopItem.getAmount(), System.currentTimeMillis(), "SALE"));
-            buyer.sendMessage(ChatColor.GREEN + shopItem.getSellerName() + "님의 " + purchasedItem.getType().name() + " " + shopItem.getAmount() + "개를 성공적으로 구매했습니다!");
+            buyer.sendMessage(ChatColor.GREEN + shopItem.getSellerName() + "님의 " + LanguageAPI.getItemName(purchasedItem) + " " + shopItem.getAmount() + "개를 성공적으로 구매했습니다!");
             Player seller = Bukkit.getPlayer(shopItem.getSellerUuid());
             if (seller != null && seller.isOnline()) {
-                seller.sendMessage(ChatColor.GREEN + buyer.getName() + "님이 당신의 " + purchasedItem.getType().name() + " " + shopItem.getAmount() + "개를 " + formatter.format(finalSellerAmount) + "원에 구매했습니다!");
+                seller.sendMessage(ChatColor.GREEN + buyer.getName() + "님이 당신의 " + LanguageAPI.getItemName(purchasedItem) + " " + shopItem.getAmount() + "개를 " + formatter.format(finalSellerAmount) + "원에 구매했습니다!");
             }
             Bukkit.getPluginManager().callEvent(new ShopItemPurchasedEvent(shopItem, buyer, shopItem.getAmount(), totalPrice));
         } else {
@@ -708,7 +714,11 @@ public class GuiManager {
             buyer.closeInventory();
             return;
         }
-
+        if (auctionItem.getSellerUuid().equals(buyer.getUniqueId())) {
+            buyer.sendMessage(ChatColor.RED + "자신의 경매 아이템을 즉시 구매할 수 없습니다.");
+            buyer.closeInventory();
+            return;
+        }
         double buyNowPrice = auctionItem.getBuyNowPrice();
 
         if (buyNowPrice <= 0) {
@@ -747,7 +757,7 @@ public class GuiManager {
         ItemStack purchasedItem = auctionItem.getItemStack().clone();
         purchasedItem.setAmount(1);
 
-        giveItemToPlayer(buyer, purchasedItem, "경매 즉시 구매 아이템");
+        plugin.giveItemToPlayer(buyer, purchasedItem, "경매 즉시 구매 아이템");
 
         if (dbManager.updateAuctionItemStatus(auctionItem.getId(), "ENDED")) {
             dbManager.saveTransaction(new Transaction(0, auctionItem.getId(), buyer.getUniqueId(), buyer.getName(), auctionItem.getSellerUuid(), auctionItem.getSellerName(), auctionItem.getItemStack(), buyNowPrice, 1, System.currentTimeMillis(), "AUCTION_PURCHASE"));
@@ -774,7 +784,6 @@ public class GuiManager {
         }
         handleFulfillBuyRequest(seller, requestId, amountToSell);
     }
-
 
     private void handleFulfillBuyRequest(Player seller, int buyRequestId, int amountToSell) {
         BuyRequest buyRequest = dbManager.getBuyRequestById(buyRequestId);
@@ -812,7 +821,6 @@ public class GuiManager {
             return;
         }
 
-
         double totalPrice = buyRequest.getPricePerItem() * amountToSell;
 
         if (!economyManager.depositPlayer(seller.getUniqueId(), totalPrice)) {
@@ -834,10 +842,10 @@ public class GuiManager {
                 dbManager.updateBuyRequestStatus(buyRequest.getId(), "FULFILLED");
             }
             dbManager.saveTransaction(new Transaction(0, buyRequest.getId(), buyRequest.getRequesterUuid(), buyRequest.getRequesterName(), seller.getUniqueId(), seller.getName(), buyRequest.getItemStack(), buyRequest.getPricePerItem(), amountToSell, System.currentTimeMillis(), "BUY_REQUEST_FULFILLMENT"));
-            seller.sendMessage(ChatColor.GREEN + buyRequest.getRequesterName() + "님의 구매 요청에 " + amountToSell + "개의 " + buyRequest.getItemStack().getType().name() + "를 판매했습니다. 대금 " + formatter.format(totalPrice) + "원이 지급되었습니다.");
+            seller.sendMessage(ChatColor.GREEN + buyRequest.getRequesterName() + "님의 구매 요청에 " + amountToSell + "개의 " + LanguageAPI.getItemName(buyRequest.getItemStack()) + "를 판매했습니다. 대금 " + formatter.format(totalPrice) + "원이 지급되었습니다.");
             OfflinePlayer requester = Bukkit.getOfflinePlayer(buyRequest.getRequesterUuid());
             if (requester.isOnline()) {
-                requester.getPlayer().sendMessage(ChatColor.GREEN + seller.getName() + "님이 당신의 구매 요청에 " + amountToSell + "개의 " + buyRequest.getItemStack().getType().name() + "를 판매했습니다!");
+                requester.getPlayer().sendMessage(ChatColor.GREEN + seller.getName() + "님이 당신의 구매 요청에 " + amountToSell + "개의 " + LanguageAPI.getItemName(buyRequest.getItemStack()) + "를 판매했습니다!");
             }
             Bukkit.getPluginManager().callEvent(new BuyRequestFulfilledEvent(buyRequest, seller, amountToSell, totalPrice));
         } else {
@@ -905,7 +913,7 @@ public class GuiManager {
             ItemStack cancelledItem = shopItem.getItemStack().clone();
             cancelledItem.setAmount(shopItem.getAmount());
 
-            giveItemToPlayer(player, cancelledItem, "취소된 판매 아이템");
+            plugin.giveItemToPlayer(player, cancelledItem, "취소된 판매 아이템");
             player.sendMessage(ChatColor.GREEN + "판매를 취소했습니다.");
 
             Bukkit.getPluginManager().callEvent(new ShopItemCancelledEvent(shopItem, player));
@@ -920,7 +928,7 @@ public class GuiManager {
             ItemStack cancelledItem = auctionItem.getItemStack().clone();
             cancelledItem.setAmount(1);
 
-            giveItemToPlayer(player, cancelledItem, "취소된 경매 아이템");
+            plugin.giveItemToPlayer(player, cancelledItem, "취소된 경매 아이템");
             player.sendMessage(ChatColor.GREEN + "경매를 취소했습니다.");
 
             if (auctionItem.getHighestBidderUuid() != null) {
@@ -949,7 +957,7 @@ public class GuiManager {
         reclaimedItem.setAmount(shopItem.getAmount());
 
         if (dbManager.deleteShopItem(shopItem.getId())) {
-            giveItemToPlayer(player, reclaimedItem, "회수된 아이템");
+            plugin.giveItemToPlayer(player, reclaimedItem, "회수된 아이템");
             Bukkit.getPluginManager().callEvent(new ShopItemReclaimedEvent(shopItem, player));
             openManagementGui(player, ManagementTab.SOLD_EXPIRED, 1);
         } else {
@@ -987,40 +995,73 @@ public class GuiManager {
         }
 
         if (dbManager.updateAuctionItemStatus(auctionItem.getId(), "RECLAIMED")) {
-            giveItemToPlayer(player, itemToGive, reason);
+            plugin.giveItemToPlayer(player, itemToGive, reason);
             openManagementGui(player, ManagementTab.SOLD_EXPIRED, 1);
         } else {
             player.sendMessage(ChatColor.RED + "경매 아이템 회수 후 데이터베이스 업데이트에 실패했습니다. 관리자에게 문의하세요.");
         }
     }
 
-    public void handleDetailedPriceInfo(Player player, ItemStack itemStack) {
+    public void openDetailedPriceInfoGui(Player player, ItemStack itemStack, int page) {
         String itemHash = ItemHashUtil.generateItemHashForComparison(itemStack);
-
-        long twentyFourHoursAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000L);
+        long thirtyDaysAgo = System.currentTimeMillis() - (30L * 24 * 60 * 60 * 1000L);
 
         Bukkit.getScheduler().runTaskAsynchronously(plugin, () -> {
-            List<Transaction> transactions = dbManager.getTransactionsByItemHash(itemHash, twentyFourHoursAgo, System.currentTimeMillis());
-            int totalListed = dbManager.getListedItemCount(itemHash);
             ShopItem lowestPriceItem = dbManager.getLowestPriceItem(itemHash);
+            int totalListed = dbManager.getListedItemCount(itemHash);
+            List<Transaction> transactions = dbManager.getTransactionsByItemHash(itemHash, thirtyDaysAgo, System.currentTimeMillis());
+            List<DailyPriceInfo> dailyInfos = dbManager.getDailyPriceInfo(itemHash, 30);
 
-            double totalVolume = 0;
-            double totalAmount = 0;
+            double totalVolume24h = 0;
+            double totalAmount24h = 0;
+            long twentyFourHoursAgo = System.currentTimeMillis() - (24 * 60 * 60 * 1000L);
             for (Transaction tx : transactions) {
-                totalVolume += tx.getPricePerItem() * tx.getAmount();
-                totalAmount += tx.getAmount();
+                if (tx.getTransactionTimestamp() >= twentyFourHoursAgo) {
+                    totalVolume24h += tx.getPricePerItem() * tx.getAmount();
+                    totalAmount24h += tx.getAmount();
+                }
             }
-            double averagePrice = totalAmount > 0 ? totalVolume / totalAmount : 0;
-            final double finalTotalAmount = totalAmount;
+            double averagePrice24h = totalAmount24h > 0 ? totalVolume24h / totalAmount24h : 0;
+
+            final double finalTotalAmount24h = totalAmount24h;
 
             Bukkit.getScheduler().runTask(plugin, () -> {
-                player.closeInventory();
-                player.sendMessage(ChatColor.GOLD + "--- [" + itemStack.getType().name() + "] 상세 시세 정보 ---");
-                player.sendMessage(ChatColor.AQUA + "현재 최저가: " + ChatColor.WHITE + (lowestPriceItem != null ? formatter.format(lowestPriceItem.getPrice()) + "원" : "판매 중인 매물 없음"));
-                player.sendMessage(ChatColor.AQUA + "24시간 평균가: " + ChatColor.WHITE + formatter.format(averagePrice) + "원");
-                player.sendMessage(ChatColor.AQUA + "24시간 거래량: " + ChatColor.WHITE + finalTotalAmount + "개");
-                player.sendMessage(ChatColor.AQUA + "총 등록 수량: " + ChatColor.WHITE + totalListed + "개");
-                player.sendMessage(ChatColor.GOLD + "--------------------------");
+                String title = GUI_PREFIX + "상세 시세 정보 (" + page + "/2)";
+                Inventory gui = Bukkit.createInventory(null, 54, title);
+
+                ItemStack summaryItem = itemStack.clone();
+                summaryItem.setAmount(1);
+                ItemMeta summaryMeta = summaryItem.getItemMeta();
+                if (summaryMeta != null) {
+                    summaryMeta.setDisplayName(ChatColor.GOLD + LanguageAPI.getItemName(itemStack) + " 시세 요약");
+                    List<String> summaryLore = new ArrayList<>();
+                    summaryLore.add(ChatColor.GRAY + "--------------------");
+                    summaryLore.add(ChatColor.AQUA + "현재 최저가: " + ChatColor.WHITE + (lowestPriceItem != null ? formatter.format(lowestPriceItem.getPrice()) + "원" : "판매 중인 매물 없음"));
+                    summaryLore.add(ChatColor.AQUA + "24시간 평균가: " + ChatColor.WHITE + formatter.format(averagePrice24h) + "원");
+                    summaryLore.add(ChatColor.AQUA + "24시간 거래량: " + ChatColor.WHITE + (int) finalTotalAmount24h + "개");
+                    summaryLore.add(ChatColor.AQUA + "총 등록 수량: " + ChatColor.WHITE + totalListed + "개");
+                    summaryLore.add(ChatColor.GRAY + "--------------------");
+                    summaryMeta.setLore(summaryLore);
+                    summaryItem.setItemMeta(summaryMeta);
+                }
+                gui.setItem(4, summaryItem);
+
+                if (page == 1) {
+                    for (int i = 0; i < 45 && i < transactions.size(); i++) {
+                        if (i + 9 < gui.getSize()) {
+                            gui.setItem(i + 9, createTransactionDisplayItem(transactions.get(i)));
+                        }
+                    }
+                } else {
+                    for (int i = 0; i < 45 && i < dailyInfos.size(); i++) {
+                        if (i + 9 < gui.getSize()) {
+                            gui.setItem(i + 9, createDailyPriceDisplayItem(dailyInfos.get(i)));
+                        }
+                    }
+                }
+
+                addPriceInfoNavigationBar(gui, page, 2);
+                player.openInventory(gui);
             });
         });
     }
@@ -1052,19 +1093,19 @@ public class GuiManager {
 
                 economyManager.depositPlayer(seller.getUniqueId(), finalSellerAmount);
                 if (seller.isOnline()) {
-                    seller.getPlayer().sendMessage(ChatColor.GREEN + "당신의 경매 아이템 (" + auction.getItemStack().getType().name() + ")이 " + winner.getName() + "에게 " + formatter.format(finalPrice) + "원에 낙찰되어 " + formatter.format(finalSellerAmount) + "원이 지급되었습니다.");
+                    seller.getPlayer().sendMessage(ChatColor.GREEN + "당신의 경매 아이템 (" + LanguageAPI.getItemName(auction.getItemStack()) + ")이 " + winner.getName() + "에게 " + formatter.format(finalPrice) + "원에 낙찰되어 " + formatter.format(finalSellerAmount) + "원이 지급되었습니다.");
                 }
 
                 ItemStack auctionedItem = auction.getItemStack().clone();
                 auctionedItem.setAmount(1);
-                giveItemToPlayer(winner, auctionedItem, "경매 낙찰 아이템");
+                plugin.giveItemToPlayer(winner, auctionedItem, "경매 낙찰 아이템");
 
                 dbManager.saveTransaction(new Transaction(0, auction.getId(), winner.getUniqueId(), winner.getName(), seller.getUniqueId(), seller.getName(), auction.getItemStack(), finalPrice, 1, System.currentTimeMillis(), "AUCTION_PURCHASE"));
                 Bukkit.getPluginManager().callEvent(new AuctionEndedEvent(auction, AuctionEndedEvent.Reason.SOLD, winner.isOnline() ? winner.getPlayer() : null));
             } else {
                 OfflinePlayer seller = Bukkit.getOfflinePlayer(auction.getSellerUuid());
                 if (seller.isOnline()) {
-                    seller.getPlayer().sendMessage(ChatColor.YELLOW + "당신의 경매 아이템 (" + auction.getItemStack().getType().name() + ")이 입찰자 없이 만료되었습니다. 물품 관리에서 회수할 수 있습니다.");
+                    seller.getPlayer().sendMessage(ChatColor.YELLOW + "당신의 경매 아이템 (" + LanguageAPI.getItemName(auction.getItemStack()) + ")이 입찰자 없이 만료되었습니다. 물품 관리에서 회수할 수 있습니다.");
                 }
                 Bukkit.getPluginManager().callEvent(new AuctionEndedEvent(auction, AuctionEndedEvent.Reason.NO_BIDS, null));
             }
@@ -1072,49 +1113,39 @@ public class GuiManager {
         }
     }
 
-    private void giveItemToPlayer(OfflinePlayer player, ItemStack item, String reason) {
-        if (player.isOnline()) {
-            Player onlinePlayer = player.getPlayer();
-            if (onlinePlayer.getInventory().addItem(item).isEmpty()) {
-                onlinePlayer.sendMessage(ChatColor.GREEN + reason + "을(를) 인벤토리로 지급받았습니다.");
-            } else {
-                sendToGiftBoxOrDrop(onlinePlayer, item, reason);
-            }
-        } else {
-            if (giftBoxAPI != null) {
-                long sevenDaysInSeconds = 7 * 24 * 60 * 60;
-                giftBoxAPI.sendGift(player.getUniqueId(), item, "서버 시스템", sevenDaysInSeconds)
-                        .thenRun(() -> plugin.getLogger().info("오프라인 플레이어 " + player.getName() + "에게 " + reason + "을(를) 우편함으로 보냈습니다."))
-                        .exceptionally(ex -> {
-                            plugin.getLogger().log(Level.SEVERE, "우편함으로 아이템 전송 중 오류 발생 (오프라인 플레이어: " + player.getName() + "): " + ex.getMessage(), ex);
-                            return null;
-                        });
-            } else {
-                plugin.getLogger().warning("오프라인 플레이어 " + player.getName() + "에게 아이템을 지급할 수 없습니다 (RangGiftBox API 없음). 수동 지급이 필요합니다: " + item.toString());
-            }
-        }
-    }
+    public void handleAdminRemoveItem(Player admin, ItemStack clickedItem) {
+        if (!admin.hasPermission("usershop.admin")) return;
 
-    private void sendToGiftBoxOrDrop(Player player, ItemStack item, String reason) {
-        if (giftBoxAPI != null) {
-            long sevenDaysInSeconds = 7 * 24 * 60 * 60;
-            giftBoxAPI.sendGift(player.getUniqueId(), item, "서버 시스템", sevenDaysInSeconds)
-                    .thenRun(() -> {
-                        if (player.isOnline()) {
-                            player.sendMessage(ChatColor.YELLOW + "인벤토리가 가득 차서 " + reason + "이(가) 우편함으로 지급되었습니다.");
-                        }
-                    })
-                    .exceptionally(ex -> {
-                        plugin.getLogger().log(Level.SEVERE, "우편함으로 아이템 전송 중 오류 발생 (플레이어: " + player.getName() + "): " + ex.getMessage(), ex);
-                        if (player.isOnline()) {
-                            player.sendMessage(ChatColor.RED + "아이템을 우편함으로 보내는 데 실패했습니다. 아이템이 바닥에 드롭됩니다.");
-                            player.getWorld().dropItemNaturally(player.getLocation(), item);
-                        }
-                        return null;
-                    });
-        } else {
-            player.getWorld().dropItemNaturally(player.getLocation(), item);
-            player.sendMessage(ChatColor.YELLOW + "인벤토리가 가득 차서 " + reason + "이(가) 발밑에 떨어졌습니다.");
+        int shopItemId = extractShopItemId(clickedItem);
+        if (shopItemId != -1) {
+            ShopItem item = dbManager.getShopItemById(shopItemId);
+            if (item != null && item.getStatus().equals("LISTED")) {
+                if (dbManager.updateShopItemStatus(item.getId(), "CANCELLED")) {
+                    ItemStack toReturn = item.getItemStack().clone();
+                    toReturn.setAmount(item.getAmount());
+                    plugin.giveItemToPlayer(Bukkit.getOfflinePlayer(item.getSellerUuid()), toReturn, "관리자에 의해 판매 종료된 아이템");
+                    admin.sendMessage(ChatColor.GREEN + "아이템(ID: " + item.getId() + ") 판매를 강제 종료하고 판매자에게 반환했습니다.");
+                    openMainShop(admin, plugin.getPlayerCurrentMainTab(admin.getUniqueId()), plugin.getPlayerCurrentPage(admin.getUniqueId()));
+                }
+            }
+            return;
+        }
+
+        int auctionItemId = extractAuctionItemId(clickedItem);
+        if (auctionItemId != -1) {
+            AuctionItem item = dbManager.getAuctionItemById(auctionItemId);
+            if (item != null && item.getStatus().equals("ACTIVE")) {
+                if (dbManager.updateAuctionItemStatus(item.getId(), "CANCELLED")) {
+                    ItemStack toReturn = item.getItemStack().clone();
+                    plugin.giveItemToPlayer(Bukkit.getOfflinePlayer(item.getSellerUuid()), toReturn, "관리자에 의해 종료된 경매 아이템");
+
+                    if (item.getHighestBidderUuid() != null) {
+                        economyManager.depositPlayer(item.getHighestBidderUuid(), item.getCurrentBid());
+                    }
+                    admin.sendMessage(ChatColor.GREEN + "경매(ID: " + item.getId() + ")를 강제 종료하고 판매자에게 아이템을 반환했습니다.");
+                    openMainShop(admin, plugin.getPlayerCurrentMainTab(admin.getUniqueId()), plugin.getPlayerCurrentPage(admin.getUniqueId()));
+                }
+            }
         }
     }
 
@@ -1125,22 +1156,12 @@ public class GuiManager {
             case PRICE_ASC -> Comparator.comparing(ShopItem::getPrice);
             case PRICE_DESC -> Comparator.comparing(ShopItem::getPrice).reversed();
             case EXPIRING_SOON -> Comparator.comparing(ShopItem::getExpiryTimestamp);
-            case ALPHABETICAL_ASC -> Comparator.comparing(item -> {
-                String name = item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() ?
-                        ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()) :
-                        item.getItemStack().getType().name();
-                return name.toLowerCase();
-            });
-            case ALPHABETICAL_DESC -> Comparator.comparing((ShopItem item) -> {
-                String name = item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() ?
-                        ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()) :
-                        item.getItemStack().getType().name();
-                return name.toLowerCase();
-            }).reversed();
+            case ALPHABETICAL_ASC -> Comparator.comparing(item -> LanguageAPI.getItemName(item.getItemStack()).toLowerCase());
+            case ALPHABETICAL_DESC -> Comparator.comparing((ShopItem item) -> LanguageAPI.getItemName(item.getItemStack()).toLowerCase()).reversed();
         };
     }
 
-    private ItemStack createDisplayItem(ShopItem shopItem) {
+    private ItemStack createDisplayItem(ShopItem shopItem, Player viewer) {
         ItemStack displayItem = shopItem.getItemStack().clone();
         displayItem.setAmount(shopItem.getAmount());
         ItemMeta meta = displayItem.getItemMeta();
@@ -1148,17 +1169,21 @@ public class GuiManager {
         if (meta != null) {
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
             if (!lore.isEmpty()) lore.add(" ");
-            lore.add(ChatColor.GRAY + "--------------------");
-            lore.add(ChatColor.AQUA + "판매자: " + ChatColor.WHITE + shopItem.getSellerName());
-            lore.add(ChatColor.AQUA + "개당 가격: " + ChatColor.WHITE + formatter.format(shopItem.getPrice()) + "원");
-            lore.add(ChatColor.AQUA + "남은 수량: " + ChatColor.WHITE + shopItem.getAmount() + "개");
-            lore.add(ChatColor.AQUA + "남은 시간: " + ChatColor.WHITE + formatDuration(shopItem.getExpiryTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
+            lore.add(ChatColor.GRAY + "판매자: " + ChatColor.WHITE + shopItem.getSellerName());
+            lore.add(ChatColor.GRAY + "개당 가격: " + ChatColor.WHITE + formatter.format(shopItem.getPrice()) + "원");
+            lore.add(ChatColor.GRAY + "남은 수량: " + ChatColor.WHITE + shopItem.getAmount() + "개");
+            lore.add(ChatColor.GRAY + "남은 시간: " + ChatColor.WHITE + formatDuration(shopItem.getExpiryTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.DARK_GRAY + "만료 일시: " + dateFormat.format(new Date(shopItem.getExpiryTimestamp())));
             lore.add(" ");
-            lore.add(ChatColor.YELLOW + "▶ 좌클릭: 구매 확인창 열기");
-            lore.add(ChatColor.YELLOW + "▶ 우클릭: 이 아이템 최저가 검색");
-            lore.add(ChatColor.YELLOW + "▶ Shift+좌클릭: 상세 시세 정보 보기");
-            lore.add(ChatColor.YELLOW + "▶ Shift+우클릭: 판매자 상점 보기");
-            lore.add(ChatColor.GRAY + "--------------------");
+            lore.add(ChatColor.AQUA + "▶ 좌클릭: 구매 확인창 열기");
+            lore.add(ChatColor.AQUA + "▶ 우클릭: 이 아이템 최저가 검색");
+            lore.add(ChatColor.AQUA + "▶ Shift+좌클릭: 상세 시세 정보 보기");
+            lore.add(ChatColor.AQUA + "▶ Shift+우클릭: 판매자 상점 보기");
+            if (viewer.hasPermission("usershop.admin")) {
+                lore.add(ChatColor.RED + "▶ Q(버리기): 강제 판매 종료");
+            }
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(shopItemIdKey, PersistentDataType.INTEGER, shopItem.getId());
@@ -1168,7 +1193,7 @@ public class GuiManager {
         return displayItem;
     }
 
-    private ItemStack createDisplayItem(AuctionItem auctionItem) {
+    private ItemStack createDisplayItem(AuctionItem auctionItem, Player viewer) {
         ItemStack displayItem = auctionItem.getItemStack().clone();
         displayItem.setAmount(1);
         ItemMeta meta = displayItem.getItemMeta();
@@ -1176,24 +1201,28 @@ public class GuiManager {
         if (meta != null) {
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
             if (!lore.isEmpty()) lore.add(" ");
-            lore.add(ChatColor.GRAY + "--------------------");
-            lore.add(ChatColor.AQUA + "판매자: " + ChatColor.WHITE + auctionItem.getSellerName());
-            lore.add(ChatColor.AQUA + "시작가: " + ChatColor.WHITE + formatter.format(auctionItem.getStartPrice()) + "원");
-            lore.add(ChatColor.AQUA + "현재 입찰가: " + ChatColor.WHITE + formatter.format(auctionItem.getCurrentBid()) + "원");
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
+            lore.add(ChatColor.GRAY + "판매자: " + ChatColor.WHITE + auctionItem.getSellerName());
+            lore.add(ChatColor.GRAY + "시작가: " + ChatColor.WHITE + formatter.format(auctionItem.getStartPrice()) + "원");
+            lore.add(ChatColor.GRAY + "현재 입찰가: " + ChatColor.WHITE + formatter.format(auctionItem.getCurrentBid()) + "원");
             if (auctionItem.getHighestBidderName() != null) {
-                lore.add(ChatColor.AQUA + "최고 입찰자: " + ChatColor.WHITE + auctionItem.getHighestBidderName());
+                lore.add(ChatColor.GRAY + "최고 입찰자: " + ChatColor.WHITE + auctionItem.getHighestBidderName());
             }
             if (auctionItem.getBuyNowPrice() > 0) {
-                lore.add(ChatColor.AQUA + "즉시 구매가: " + ChatColor.WHITE + formatter.format(auctionItem.getBuyNowPrice()) + "원");
+                lore.add(ChatColor.GRAY + "즉시 구매가: " + ChatColor.WHITE + formatter.format(auctionItem.getBuyNowPrice()) + "원");
             }
-            lore.add(ChatColor.AQUA + "남은 시간: " + ChatColor.WHITE + formatDuration(auctionItem.getEndTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.GRAY + "남은 시간: " + ChatColor.WHITE + formatDuration(auctionItem.getEndTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.DARK_GRAY + "종료 일시: " + dateFormat.format(new Date(auctionItem.getEndTimestamp())));
             lore.add(" ");
-            lore.add(ChatColor.YELLOW + "▶ 좌클릭: 입찰하기");
+            lore.add(ChatColor.AQUA + "▶ 좌클릭: 입찰하기");
             if (auctionItem.getBuyNowPrice() > 0) {
-                lore.add(ChatColor.YELLOW + "▶ 우클릭: 즉시 구매하기");
+                lore.add(ChatColor.AQUA + "▶ 우클릭: 즉시 구매하기");
             }
-            lore.add(ChatColor.YELLOW + "▶ Shift+우클릭: 판매자 경매 보기");
-            lore.add(ChatColor.GRAY + "--------------------");
+            lore.add(ChatColor.AQUA + "▶ Shift+우클릭: 판매자 경매 보기");
+            if (viewer.hasPermission("usershop.admin")) {
+                lore.add(ChatColor.RED + "▶ Q(버리기): 강제 경매 종료");
+            }
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(auctionItemIdKey, PersistentDataType.INTEGER, auctionItem.getId());
@@ -1203,7 +1232,7 @@ public class GuiManager {
         return displayItem;
     }
 
-    private ItemStack createDisplayItem(BuyRequest buyRequest) {
+    private ItemStack createDisplayItem(BuyRequest buyRequest, Player viewer) {
         ItemStack displayItem = buyRequest.getItemStack().clone();
         displayItem.setAmount(buyRequest.getAmountRequested() - buyRequest.getAmountFulfilled());
         ItemMeta meta = displayItem.getItemMeta();
@@ -1211,15 +1240,20 @@ public class GuiManager {
         if (meta != null) {
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
             if (!lore.isEmpty()) lore.add(" ");
-            lore.add(ChatColor.GRAY + "--------------------");
-            lore.add(ChatColor.AQUA + "요청자: " + ChatColor.WHITE + buyRequest.getRequesterName());
-            lore.add(ChatColor.AQUA + "개당 가격: " + ChatColor.WHITE + formatter.format(buyRequest.getPricePerItem()) + "원");
-            lore.add(ChatColor.AQUA + "요청 수량: " + ChatColor.WHITE + buyRequest.getAmountRequested() + "개");
-            lore.add(ChatColor.AQUA + "남은 수량: " + ChatColor.WHITE + (buyRequest.getAmountRequested() - buyRequest.getAmountFulfilled()) + "개");
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
+            lore.add(ChatColor.GRAY + "요청자: " + ChatColor.WHITE + buyRequest.getRequesterName());
+            lore.add(ChatColor.GRAY + "개당 가격: " + ChatColor.WHITE + formatter.format(buyRequest.getPricePerItem()) + "원");
+            lore.add(ChatColor.GRAY + "요청 수량: " + ChatColor.WHITE + buyRequest.getAmountRequested() + "개");
+            lore.add(ChatColor.GRAY + "남은 수량: " + ChatColor.WHITE + (buyRequest.getAmountRequested() - buyRequest.getAmountFulfilled()) + "개");
+            lore.add(ChatColor.GRAY + "남은 시간: " + ChatColor.WHITE + formatDuration(buyRequest.getExpiryTimestamp() - System.currentTimeMillis()));
+            lore.add(ChatColor.DARK_GRAY + "만료 일시: " + dateFormat.format(new Date(buyRequest.getExpiryTimestamp())));
             lore.add(" ");
-            lore.add(ChatColor.YELLOW + "▶ 좌클릭: 판매하기");
-            lore.add(ChatColor.YELLOW + "▶ Shift+우클릭: 요청자 구매 요청 보기");
-            lore.add(ChatColor.GRAY + "--------------------");
+            lore.add(ChatColor.AQUA + "▶ 좌클릭: 판매하기");
+            lore.add(ChatColor.AQUA + "▶ Shift+우클릭: 요청자 구매 요청 보기");
+            if (viewer.hasPermission("usershop.admin")) {
+                lore.add(ChatColor.RED + "▶ Q(버리기): 강제 요청 종료");
+            }
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(buyRequestIdKey, PersistentDataType.INTEGER, buyRequest.getId());
@@ -1237,13 +1271,14 @@ public class GuiManager {
         if (meta != null) {
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
             if (!lore.isEmpty()) lore.add(" ");
-            lore.add(ChatColor.GRAY + "--------------------");
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
 
-            lore.add(ChatColor.AQUA + "개당 가격: " + ChatColor.WHITE + formatter.format(shopItem.getPrice()) + "원");
-            lore.add(ChatColor.AQUA + "수량: " + ChatColor.WHITE + shopItem.getAmount() + "개");
+            lore.add(ChatColor.GRAY + "개당 가격: " + ChatColor.WHITE + formatter.format(shopItem.getPrice()) + "원");
+            lore.add(ChatColor.GRAY + "수량: " + ChatColor.WHITE + shopItem.getAmount() + "개");
 
             if (tab == ManagementTab.SELLING) {
-                lore.add(ChatColor.AQUA + "남은 시간: " + ChatColor.WHITE + formatDuration(shopItem.getExpiryTimestamp() - System.currentTimeMillis()));
+                lore.add(ChatColor.GRAY + "남은 시간: " + ChatColor.WHITE + formatDuration(shopItem.getExpiryTimestamp() - System.currentTimeMillis()));
+                lore.add(ChatColor.DARK_GRAY + "만료 일시: " + dateFormat.format(new Date(shopItem.getExpiryTimestamp())));
                 lore.add(" ");
                 lore.add(ChatColor.RED + "▶ 좌클릭: 판매 취소하기");
             } else if (tab == ManagementTab.SOLD_EXPIRED) {
@@ -1253,16 +1288,16 @@ public class GuiManager {
                     case "CANCELLED" -> "판매 취소됨";
                     default -> shopItem.getStatus();
                 };
-                lore.add(ChatColor.AQUA + "상태: " + ChatColor.WHITE + status);
-                lore.add(ChatColor.AQUA + "종료 시간: " + ChatColor.WHITE + new Date(shopItem.getExpiryTimestamp()).toLocaleString());
+                lore.add(ChatColor.GRAY + "상태: " + ChatColor.WHITE + status);
+                lore.add(ChatColor.GRAY + "종료 시간: " + ChatColor.WHITE + dateFormat.format(new Date(shopItem.getExpiryTimestamp())));
                 lore.add(" ");
                 if (shopItem.getStatus().equals("EXPIRED") || shopItem.getStatus().equals("CANCELLED")) {
                     lore.add(ChatColor.GREEN + "▶ 좌클릭: 아이템 회수하기");
                 } else {
-                    lore.add(ChatColor.GRAY + "판매 대금은 자동으로 정산되었습니다.");
+                    lore.add(ChatColor.DARK_GRAY + "판매 대금은 자동으로 정산되었습니다.");
                 }
             }
-            lore.add(ChatColor.GRAY + "--------------------");
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(shopItemIdKey, PersistentDataType.INTEGER, shopItem.getId());
@@ -1279,15 +1314,16 @@ public class GuiManager {
         if (meta != null) {
             List<String> lore = meta.hasLore() ? new ArrayList<>(meta.getLore()) : new ArrayList<>();
             if (!lore.isEmpty()) lore.add(" ");
-            lore.add(ChatColor.GRAY + "--------------------");
-            lore.add(ChatColor.AQUA + "시작가: " + ChatColor.WHITE + formatter.format(auctionItem.getStartPrice()) + "원");
-            lore.add(ChatColor.AQUA + "최종 입찰가: " + ChatColor.WHITE + formatter.format(auctionItem.getCurrentBid()) + "원");
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
+            lore.add(ChatColor.GRAY + "시작가: " + ChatColor.WHITE + formatter.format(auctionItem.getStartPrice()) + "원");
+            lore.add(ChatColor.GRAY + "최종 입찰가: " + ChatColor.WHITE + formatter.format(auctionItem.getCurrentBid()) + "원");
             if (auctionItem.getHighestBidderName() != null) {
-                lore.add(ChatColor.AQUA + "최고 입찰자: " + ChatColor.WHITE + auctionItem.getHighestBidderName());
+                lore.add(ChatColor.GRAY + "최고 입찰자: " + ChatColor.WHITE + auctionItem.getHighestBidderName());
             }
 
             if (tab == ManagementTab.SELLING) {
-                lore.add(ChatColor.AQUA + "남은 시간: " + ChatColor.WHITE + formatDuration(auctionItem.getEndTimestamp() - System.currentTimeMillis()));
+                lore.add(ChatColor.GRAY + "남은 시간: " + ChatColor.WHITE + formatDuration(auctionItem.getEndTimestamp() - System.currentTimeMillis()));
+                lore.add(ChatColor.DARK_GRAY + "종료 일시: " + dateFormat.format(new Date(auctionItem.getEndTimestamp())));
                 lore.add(" ");
                 lore.add(ChatColor.RED + "▶ 좌클릭: 경매 취소하기");
             } else if (tab == ManagementTab.SOLD_EXPIRED) {
@@ -1296,12 +1332,12 @@ public class GuiManager {
                     case "CANCELLED" -> "경매 취소됨";
                     default -> auctionItem.getStatus();
                 };
-                lore.add(ChatColor.AQUA + "상태: " + ChatColor.WHITE + status);
-                lore.add(ChatColor.AQUA + "종료 시간: " + ChatColor.WHITE + new Date(auctionItem.getEndTimestamp()).toLocaleString());
+                lore.add(ChatColor.GRAY + "상태: " + ChatColor.WHITE + status);
+                lore.add(ChatColor.GRAY + "종료 시간: " + ChatColor.WHITE + dateFormat.format(new Date(auctionItem.getEndTimestamp())));
                 lore.add(" ");
                 lore.add(ChatColor.GREEN + "▶ 좌클릭: 아이템/대금 회수하기");
             }
-            lore.add(ChatColor.GRAY + "--------------------");
+            lore.add(ChatColor.DARK_GRAY + "--------------------");
             meta.setLore(lore);
 
             meta.getPersistentDataContainer().set(auctionItemIdKey, PersistentDataType.INTEGER, auctionItem.getId());
@@ -1310,66 +1346,137 @@ public class GuiManager {
         return displayItem;
     }
 
+    private ItemStack createTransactionDisplayItem(Transaction tx) {
+        ItemStack item = new ItemStack(Material.PAPER);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.WHITE + "거래 내역");
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "거래 종류: " + ChatColor.WHITE + tx.getType());
+            lore.add(ChatColor.GRAY + "판매자: " + ChatColor.WHITE + tx.getSellerName());
+            lore.add(ChatColor.GRAY + "구매자: " + ChatColor.WHITE + tx.getBuyerName());
+            lore.add(ChatColor.GRAY + "개당 가격: " + ChatColor.WHITE + formatter.format(tx.getPricePerItem()) + "원");
+            lore.add(ChatColor.GRAY + "수량: " + ChatColor.WHITE + tx.getAmount() + "개");
+            lore.add(ChatColor.DARK_GRAY + "거래 시각: " + ChatColor.WHITE + dateFormat.format(new Date(tx.getTransactionTimestamp())));
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
+    private ItemStack createDailyPriceDisplayItem(DailyPriceInfo info) {
+        ItemStack item = new ItemStack(Material.MAP);
+        ItemMeta meta = item.getItemMeta();
+        if (meta != null) {
+            meta.setDisplayName(ChatColor.WHITE + new SimpleDateFormat("yyyy년 MM월 dd일").format(info.getDate()));
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.GRAY + "평균 거래가: " + ChatColor.WHITE + formatter.format(info.getAveragePrice()) + "원");
+            lore.add(ChatColor.GRAY + "총 거래량: " + ChatColor.WHITE + info.getTotalAmount() + "개");
+            meta.setLore(lore);
+            item.setItemMeta(meta);
+        }
+        return item;
+    }
+
     private void addMainNavigationBar(Player player, Inventory gui, MainGuiTab currentTab, int currentPage, int totalPages) {
-        gui.setItem(MAIN_TAB_SHOP_SLOT, createNavItem(MainGuiTab.SHOP.getIcon(), (currentTab == MainGuiTab.SHOP ? ChatColor.GREEN : ChatColor.YELLOW) + MainGuiTab.SHOP.getDisplayName(), ChatColor.GRAY + "일반 상점을 봅니다."));
-        gui.setItem(MAIN_TAB_AUCTION_SLOT, createNavItem(MainGuiTab.AUCTION.getIcon(), (currentTab == MainGuiTab.AUCTION ? ChatColor.GREEN : ChatColor.YELLOW) + MainGuiTab.AUCTION.getDisplayName(), ChatColor.GRAY + "경매장을 봅니다."));
-        gui.setItem(MAIN_TAB_BUY_REQUEST_SLOT, createNavItem(MainGuiTab.BUY_REQUESTS.getIcon(), (currentTab == MainGuiTab.BUY_REQUESTS ? ChatColor.GREEN : ChatColor.YELLOW) + MainGuiTab.BUY_REQUESTS.getDisplayName(), ChatColor.GRAY + "구매 요청 목록을 봅니다."));
+        gui.setItem(MAIN_TAB_SHOP_SLOT, createNavItem(MainGuiTab.SHOP.getIcon(), (currentTab == MainGuiTab.SHOP ? ChatColor.GREEN : ChatColor.WHITE) + MainGuiTab.SHOP.getDisplayName(), ChatColor.GRAY + "일반 상점을 봅니다."));
+        gui.setItem(MAIN_TAB_AUCTION_SLOT, createNavItem(MainGuiTab.AUCTION.getIcon(), (currentTab == MainGuiTab.AUCTION ? ChatColor.GREEN : ChatColor.WHITE) + MainGuiTab.AUCTION.getDisplayName(), ChatColor.GRAY + "경매장을 봅니다."));
+        gui.setItem(MAIN_TAB_BUY_REQUEST_SLOT, createNavItem(MainGuiTab.BUY_REQUESTS.getIcon(), (currentTab == MainGuiTab.BUY_REQUESTS ? ChatColor.GREEN : ChatColor.WHITE) + MainGuiTab.BUY_REQUESTS.getDisplayName(), ChatColor.GRAY + "구매 요청 목록을 봅니다."));
 
         if (currentPage > 1) {
-            gui.setItem(MAIN_PREV_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.GREEN + "이전 페이지", "클릭하여 " + (currentPage - 1) + "페이지로 이동합니다."));
+            gui.setItem(MAIN_PREV_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.WHITE + "이전 페이지", ChatColor.GRAY + "클릭하여 " + (currentPage - 1) + "페이지로 이동합니다."));
         } else {
             gui.setItem(MAIN_PREV_PAGE_SLOT, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
         }
 
-        gui.setItem(MAIN_PAGE_INFO_SLOT, createNavItem(Material.PAPER, ChatColor.AQUA + "페이지 정보", ChatColor.WHITE + String.valueOf(currentPage) + " / " + totalPages));
+        gui.setItem(MAIN_PAGE_INFO_SLOT, createNavItem(Material.PAPER, ChatColor.WHITE + "페이지 정보", ChatColor.GRAY + String.valueOf(currentPage) + " / " + totalPages));
 
         if (currentPage < totalPages) {
-            gui.setItem(MAIN_NEXT_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.GREEN + "다음 페이지", "클릭하여 " + (currentPage + 1) + "페이지로 이동합니다."));
+            gui.setItem(MAIN_NEXT_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.WHITE + "다음 페이지", ChatColor.GRAY + "클릭하여 " + (currentPage + 1) + "페이지로 이동합니다."));
         } else {
             gui.setItem(MAIN_NEXT_PAGE_SLOT, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
         }
 
-        gui.setItem(MAIN_REFRESH_SLOT, createNavItem(Material.SUNFLOWER, ChatColor.YELLOW + "새로고침", "클릭하여 상점 목록을 새로고침합니다."));
+        gui.setItem(MAIN_REFRESH_SLOT, createNavItem(Material.SUNFLOWER, ChatColor.WHITE + "새로고침", ChatColor.GRAY + "클릭하여 상점 목록을 새로고침합니다."));
 
         UUID filterSellerUuid = plugin.getPlayerFilterSellerUuid(player.getUniqueId());
-        if (filterSellerUuid != null) {
-            OfflinePlayer filteredPlayer = Bukkit.getOfflinePlayer(filterSellerUuid);
-            gui.setItem(MAIN_SEARCH_HELP_SLOT, createNavItem(Material.REDSTONE_BLOCK, ChatColor.RED + "필터 활성화됨: " + (filteredPlayer.hasPlayedBefore() ? filteredPlayer.getName() : "알 수 없음"),
-                    ChatColor.GRAY + "Shift+좌클릭: 필터 초기화",
-                    ChatColor.GRAY + "좌클릭: 검색",
-                    ChatColor.GRAY + "우클릭: 도움말"));
+        String searchTerm = plugin.getPlayerSearchTerm(player.getUniqueId());
+
+        if (filterSellerUuid != null || (searchTerm != null && !searchTerm.isEmpty())) {
+            OfflinePlayer filteredPlayer = filterSellerUuid != null ? Bukkit.getOfflinePlayer(filterSellerUuid) : null;
+            String filterName = filteredPlayer != null && filteredPlayer.hasPlayedBefore() ? filteredPlayer.getName() : "알 수 없음";
+            List<String> lore = new ArrayList<>();
+            lore.add(ChatColor.WHITE + "필터 활성화됨:");
+            if (filterSellerUuid != null) {
+                lore.add(ChatColor.GRAY + "판매자: " + filterName);
+            }
+            if (searchTerm != null && !searchTerm.isEmpty()) {
+                lore.add(ChatColor.GRAY + "검색어: " + searchTerm);
+            }
+            lore.add(" ");
+            lore.add(ChatColor.AQUA + "Shift+좌클릭: 모든 필터 초기화");
+            lore.add(ChatColor.AQUA + "좌클릭: 검색");
+            lore.add(ChatColor.AQUA + "우클릭: 도움말");
+            gui.setItem(MAIN_SEARCH_HELP_SLOT, createNavItem(Material.REDSTONE_BLOCK, ChatColor.RED + "필터 활성화됨", lore.toArray(new String[0])));
         } else {
-            gui.setItem(MAIN_SEARCH_HELP_SLOT, createNavItem(Material.OAK_SIGN, ChatColor.YELLOW + "검색 / 도움말",
+            gui.setItem(MAIN_SEARCH_HELP_SLOT, createNavItem(Material.OAK_SIGN, ChatColor.WHITE + "검색 / 도움말",
                     ChatColor.GRAY + "좌클릭: 검색",
                     ChatColor.GRAY + "우클릭: 도움말"));
         }
 
-        gui.setItem(MAIN_SORT_SLOT, createNavItem(Material.HOPPER, ChatColor.YELLOW + "정렬: " + plugin.getCurrentSortOrder().getDisplayName(), "클릭하여 정렬 방식을 변경합니다."));
+        gui.setItem(MAIN_SORT_SLOT, createNavItem(Material.HOPPER, ChatColor.WHITE + "정렬: " + plugin.getCurrentSortOrder().getDisplayName(), ChatColor.GRAY + "클릭하여 정렬 방식을 변경합니다."));
     }
 
     private void addManagementNavigationBar(Inventory gui, ManagementTab currentTab, int currentPage, int totalPages) {
         for (ManagementTab tab : ManagementTab.values()) {
             ItemStack tabItem = createNavItem(tab.getIcon(),
-                    (currentTab == tab ? ChatColor.GREEN : ChatColor.YELLOW) + tab.getDisplayName(),
+                    (currentTab == tab ? ChatColor.GREEN : ChatColor.WHITE) + tab.getDisplayName(),
                     ChatColor.GRAY + "클릭하여 " + tab.getDisplayName() + "을(를) 봅니다.");
             gui.setItem(getManagementTabSlot(tab), tabItem);
         }
 
         if (currentPage > 1) {
-            gui.setItem(MANAGEMENT_PREV_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.GREEN + "이전 페이지", "클릭하여 " + (currentPage - 1) + "페이지로 이동합니다."));
+            gui.setItem(MANAGEMENT_PREV_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.WHITE + "이전 페이지", ChatColor.GRAY + "클릭하여 " + (currentPage - 1) + "페이지로 이동합니다."));
         } else {
             gui.setItem(MANAGEMENT_PREV_PAGE_SLOT, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
         }
 
-        gui.setItem(MANAGEMENT_PAGE_INFO_SLOT, createNavItem(Material.PAPER, ChatColor.AQUA + "페이지 정보", currentPage + " / " + totalPages));
+        gui.setItem(MANAGEMENT_PAGE_INFO_SLOT, createNavItem(Material.PAPER, ChatColor.WHITE + "페이지 정보", ChatColor.GRAY + String.valueOf(currentPage) + " / " + totalPages));
 
         if (currentPage < totalPages) {
-            gui.setItem(MANAGEMENT_NEXT_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.GREEN + "다음 페이지", "클릭하여 " + (currentPage + 1) + "페이지로 이동합니다."));
+            gui.setItem(MANAGEMENT_NEXT_PAGE_SLOT, createNavItem(Material.ARROW, ChatColor.WHITE + "다음 페이지", ChatColor.GRAY + "클릭하여 " + (currentPage + 1) + "페이지로 이동합니다."));
         } else {
             gui.setItem(MANAGEMENT_NEXT_PAGE_SLOT, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
         }
 
-        gui.setItem(MANAGEMENT_BACK_TO_MAIN_SLOT, createNavItem(Material.WRITABLE_BOOK, ChatColor.YELLOW + "메인 상점으로 돌아가기", "클릭하여 메인 상점으로 돌아갑니다."));
+        gui.setItem(MANAGEMENT_BACK_TO_MAIN_SLOT, createNavItem(Material.WRITABLE_BOOK, ChatColor.WHITE + "메인 상점으로 돌아가기", ChatColor.GRAY + "클릭하여 메인 상점으로 돌아갑니다."));
+    }
+
+    private void addPriceInfoNavigationBar(Inventory gui, int currentPage, int totalPages) {
+        if (currentPage > 1) {
+            ItemStack prev = createNavItem(Material.ARROW, ChatColor.WHITE + "이전 페이지", ChatColor.GRAY + "클릭하여 " + (currentPage - 1) + "페이지로 이동합니다.");
+            ItemMeta meta = prev.getItemMeta();
+            meta.getPersistentDataContainer().set(priceInfoPageKey, PersistentDataType.INTEGER, currentPage);
+            prev.setItemMeta(meta);
+            gui.setItem(48, prev);
+        } else {
+            gui.setItem(48, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
+        }
+
+        gui.setItem(49, createNavItem(Material.PAPER, ChatColor.WHITE + "페이지 정보", ChatColor.GRAY + String.valueOf(currentPage) + " / " + totalPages,
+                currentPage == 1 ? ChatColor.DARK_GRAY + "(최근 거래 내역)" : ChatColor.DARK_GRAY + "(일별 시세 변동)"));
+
+        if (currentPage < totalPages) {
+            ItemStack next = createNavItem(Material.ARROW, ChatColor.WHITE + "다음 페이지", ChatColor.GRAY + "클릭하여 " + (currentPage + 1) + "페이지로 이동합니다.");
+            ItemMeta meta = next.getItemMeta();
+            meta.getPersistentDataContainer().set(priceInfoPageKey, PersistentDataType.INTEGER, currentPage);
+            next.setItemMeta(meta);
+            gui.setItem(50, next);
+        } else {
+            gui.setItem(50, createNavItem(Material.GRAY_STAINED_GLASS_PANE, " ", ""));
+        }
+
+        gui.setItem(53, createNavItem(Material.BARRIER, ChatColor.RED + "뒤로가기", ChatColor.GRAY + ""));
     }
 
     private int getManagementTabSlot(ManagementTab tab) {
