@@ -19,10 +19,10 @@ import rang.games.rangUserShop.listener.GuiListener;
 import rang.games.rangUserShop.listener.PlayerListener;
 
 import java.text.DecimalFormat;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -110,10 +110,10 @@ public final class RangUserShop extends JavaPlugin {
     }
 
     private SortOrder currentSortOrder = SortOrder.LATEST;
-    private final Map<UUID, String> playerSearchTerms = new HashMap<>();
-    private final Map<UUID, MainGuiTab> playerCurrentMainTab = new HashMap<>();
-    private final Map<UUID, Integer> playerCurrentPage = new HashMap<>();
-    private final Map<UUID, UUID> playerFilterSellerUuid = new HashMap<>();
+    private final Map<UUID, String> playerSearchTerms = new ConcurrentHashMap<>();
+    private final Map<UUID, MainGuiTab> playerCurrentMainTab = new ConcurrentHashMap<>();
+    private final Map<UUID, Integer> playerCurrentPage = new ConcurrentHashMap<>();
+    private final Map<UUID, UUID> playerFilterSellerUuid = new ConcurrentHashMap<>();
 
     @Override
     public void onEnable() {

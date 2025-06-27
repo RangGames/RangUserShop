@@ -24,21 +24,6 @@ public class PlayerListener implements Listener {
 
     @EventHandler
     public void onInventoryClose(InventoryCloseEvent event) {
-        if (!(event.getPlayer() instanceof Player)) {
-            return;
-        }
 
-        if (!event.getView().getTitle().startsWith(GuiManager.GUI_PREFIX)) {
-            return;
-        }
-
-        Player player = (Player) event.getPlayer();
-
-        Bukkit.getScheduler().runTaskLater(plugin, () -> {
-            if (player.getOpenInventory().getTopInventory().getHolder() == null ||
-                    !player.getOpenInventory().getTitle().startsWith(GuiManager.GUI_PREFIX)) {
-                plugin.setPlayerSearchTerm(player.getUniqueId(), null);
-            }
-        }, 1L);
     }
 }

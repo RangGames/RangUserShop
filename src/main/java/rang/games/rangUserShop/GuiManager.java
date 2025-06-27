@@ -19,6 +19,7 @@ import rang.games.rangUserShop.util.ItemHashUtil;
 import java.text.DecimalFormat;
 import java.text.SimpleDateFormat;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.stream.Collectors;
@@ -86,7 +87,7 @@ public class GuiManager {
     private final NamespacedKey shopSellerUuidKey;
     public final NamespacedKey priceInfoPageKey;
 
-    private final Map<UUID, ManagementTab> playerCurrentManagementTab = new HashMap<>();
+    private final Map<UUID, ManagementTab> playerCurrentManagementTab = new ConcurrentHashMap<>();
 
     public GuiManager(RangUserShop plugin) {
         this.plugin = plugin;
