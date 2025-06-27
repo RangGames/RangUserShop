@@ -2,7 +2,7 @@ name: RangUserShop
 version: '1.0-SNAPSHOT'
 main: rang.games.rangUserShop.RangUserShop
 author: Rang
-depend: [Vault, SignGUI, RangGiftBox]
+depend: [Vault, RangGiftBox]
 
 commands:
   유저상점:

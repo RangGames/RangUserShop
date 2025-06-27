@@ -1131,7 +1131,7 @@ public class GuiManager {
                         item.getItemStack().getType().name();
                 return name.toLowerCase();
             });
-            case ALPHABETICAL_DESC -> Comparator.comparing(item -> {
+            case ALPHABETICAL_DESC -> Comparator.comparing((ShopItem item) -> {
                 String name = item.getItemStack().hasItemMeta() && item.getItemStack().getItemMeta().hasDisplayName() ?
                         ChatColor.stripColor(item.getItemStack().getItemMeta().getDisplayName()) :
                         item.getItemStack().getType().name();

@@ -1,6 +1,6 @@
 database:
-  host: localhost
+  host: "localhost"
   port: 3306
-  name: usershop
-  username: user
-  password: password
+  database: "usershop"
+  username: "user"
+  password: "password"
