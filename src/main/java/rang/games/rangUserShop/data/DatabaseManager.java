@@ -49,7 +49,7 @@ public class DatabaseManager {
             }
         }
 
-        String jdbcUrl = String.format("jdbc:mariadb://%s:%d/%s", host, port, databaseName);
+        String jdbcUrl = String.format("jdbc:mysql://%s:%d/%s", host, port, databaseName);
         try {
             Class.forName("org.mariadb.jdbc.Driver");
             connection = DriverManager.getConnection(jdbcUrl, username, password);
