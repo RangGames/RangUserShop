@@ -442,9 +442,12 @@ public class GuiManager {
                     .setLines("", "^^^^^^^^^^^^^^^", "검색어를 입력하세요", "입력 후 표지판 닫기")
                     .setHandler((p, result) -> {
                         String searchTerm = result.getLine(0).trim();
-                        plugin.setPlayerSearchTerm(p.getUniqueId(), searchTerm.isEmpty() ? null : searchTerm);
-                        p.sendMessage(ChatColor.GREEN + (searchTerm.isEmpty() ? "검색이 초기화되었습니다." : "'" + searchTerm + "'(으)로 상점을 검색합니다."));
-                        return List.of(SignGUIAction.run(() -> openMainShop(p, plugin.getPlayerCurrentMainTab(p.getUniqueId()), 1)));
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            plugin.setPlayerSearchTerm(p.getUniqueId(), searchTerm.isEmpty() ? null : searchTerm);
+                            p.sendMessage(ChatColor.GREEN + (searchTerm.isEmpty() ? "검색이 초기화되었습니다." : "'" + searchTerm + "'(으)로 상점을 검색합니다."));
+                            openMainShop(p, plugin.getPlayerCurrentMainTab(p.getUniqueId()), 1);
+                        });
+                        return Collections.emptyList();
                     })
                     .build()
                     .open(player);
@@ -465,13 +468,15 @@ public class GuiManager {
                     .setLines("", "^^^^^^^^^^^^^^^", "입찰가를 입력하세요", "현재: " + formatter.format(auctionItem.getCurrentBid()))
                     .setHandler((p, result) -> {
                         String bidString = result.getLine(0).trim();
-                        try {
-                            double bidAmount = Double.parseDouble(bidString);
-                            handlePlaceBid(p, auctionItem.getId(), bidAmount);
-                        } catch (NumberFormatException e) {
-                            p.sendMessage(ChatColor.RED + "올바른 숫자를 입력해주세요.");
-                            return List.of(SignGUIAction.run(() -> openAuctionBidGui(p, auctionItem)));
-                        }
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            try {
+                                double bidAmount = Double.parseDouble(bidString);
+                                handlePlaceBid(p, auctionItem.getId(), bidAmount);
+                            } catch (NumberFormatException e) {
+                                p.sendMessage(ChatColor.RED + "올바른 숫자를 입력해주세요.");
+                                openAuctionBidGui(p, auctionItem);
+                            }
+                        });
                         return Collections.emptyList();
                     })
                     .build()
@@ -493,13 +498,15 @@ public class GuiManager {
                     .setLines("", "^^^^^^^^^^^^^^^", "판매할 수량을 입력하세요", "남은 수량: " + (buyRequest.getAmountRequested() - buyRequest.getAmountFulfilled()))
                     .setHandler((p, result) -> {
                         String amountString = result.getLine(0).trim();
-                        try {
-                            int amountToSell = Integer.parseInt(amountString);
-                            handleFulfillBuyRequest(p, buyRequest.getId(), amountToSell);
-                        } catch (NumberFormatException e) {
-                            p.sendMessage(ChatColor.RED + "올바른 숫자를 입력해주세요.");
-                            return List.of(SignGUIAction.run(() -> openBuyRequestFulfillGui(p, buyRequest)));
-                        }
+                        Bukkit.getScheduler().runTask(plugin, () -> {
+                            try {
+                                int amountToSell = Integer.parseInt(amountString);
+                                handleFulfillBuyRequest(p, buyRequest.getId(), amountToSell);
+                            } catch (NumberFormatException e) {
+                                p.sendMessage(ChatColor.RED + "올바른 숫자를 입력해주세요.");
+                                openBuyRequestFulfillGui(p, buyRequest);
+                            }
+                        });
                         return Collections.emptyList();
                     })
                     .build()

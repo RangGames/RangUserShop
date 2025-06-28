@@ -146,7 +146,7 @@ public class DatabaseManager {
                 "price_per_item DOUBLE NOT NULL," +
                 "amount INT NOT NULL," +
                 "transaction_timestamp BIGINT NOT NULL," +
-                "type VARCHAR(25) NOT NULL," +
+                "type VARCHAR(32) NOT NULL," +
                 "INDEX (item_id), INDEX (buyer_uuid), INDEX (seller_uuid), INDEX (transaction_timestamp), INDEX (item_hash)" +
                 ") ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;";
 

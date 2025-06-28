@@ -192,7 +192,12 @@ public final class RangUserShop extends JavaPlugin {
 
                     OfflinePlayer requester = Bukkit.getOfflinePlayer(request.getRequesterUuid());
                     if (requester.isOnline()) {
-                        requester.getPlayer().sendMessage(ChatColor.YELLOW + "구매 요청하신 아이템(" + LanguageAPI.getItemName(request.getItemStack()) + ")이 만료되어 " + formatter.format(amountToRefund) + "원이 환불되었습니다.");
+                        Bukkit.getScheduler().runTask(this, () -> {
+                            Player onlineRequester = requester.getPlayer();
+                            if (onlineRequester != null) {
+                                onlineRequester.sendMessage(ChatColor.YELLOW + "구매 요청하신 아이템(" + LanguageAPI.getItemName(request.getItemStack()) + ")이 만료되어 " + formatter.format(amountToRefund) + "원이 환불되었습니다.");
+                            }
+                        });
                     }
                 } else {
                     log.warning("만료된 구매 요청(ID: " + request.getId() + ")의 금액 환불에 실패했습니다. 요청자: " + request.getRequesterUuid() + ", 환불액: " + amountToRefund);
