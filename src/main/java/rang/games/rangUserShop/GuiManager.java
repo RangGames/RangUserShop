@@ -80,7 +80,7 @@ public class GuiManager {
     private final DatabaseManager dbManager;
     private final EconomyManager economyManager;
     private final DecimalFormat formatter = new DecimalFormat("#,###");
-    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy.MM.dd HH:mm");
+    private final SimpleDateFormat dateFormat = new SimpleDateFormat("yyyy.MM.dd. HH:mm");
     private final NamespacedKey shopItemIdKey;
     private final NamespacedKey auctionItemIdKey;
     private final NamespacedKey buyRequestIdKey;

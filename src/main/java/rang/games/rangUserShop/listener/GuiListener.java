@@ -1,5 +1,6 @@
 package rang.games.rangUserShop.listener;
 
+import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
 import org.bukkit.entity.Player;
@@ -47,15 +48,17 @@ public class GuiListener implements Listener {
         String rawTitle = ChatColor.stripColor(title.replace(GuiManager.GUI_PREFIX, ""));
 
         if (rawTitle.startsWith("상점") || rawTitle.startsWith("경매장") || rawTitle.startsWith("구매 요청")) {
-            handleMainShopClick(player, clickedItem, slot, event.getClick());
+            if (rawTitle.startsWith("구매 요청 이행")) {
+                handleBuyRequestFulfillGuiClick(player, clickedItem, slot);
+            } else {
+                handleMainShopClick(player, clickedItem, slot, event.getClick());
+            }
         } else if (rawTitle.startsWith("물품 관리")) {
             handleManagementGuiClick(player, clickedItem, slot, event.getClick());
         } else if (rawTitle.startsWith("구매 확인")) {
             handlePurchaseConfirmClick(player, clickedItem, slot);
         } else if (rawTitle.startsWith("경매 입찰")) {
             handleAuctionBidGuiClick(player, clickedItem, slot);
-        } else if (rawTitle.startsWith("구매 요청 이행")) {
-            handleBuyRequestFulfillGuiClick(player, clickedItem, slot);
         } else if (rawTitle.startsWith("최저가 목록")) {
             guiManager.handleMainShopItemClick(player, clickedItem, event.getClick());
         } else if (rawTitle.startsWith("상세 시세 정보")) {
@@ -240,7 +243,6 @@ public class GuiListener implements Listener {
             player.closeInventory();
             return;
         }
-
         switch (slot) {
             case GuiManager.BUY_REQUEST_FULFILL_ALL_SLOT:
                 if (clickedItem.getType() == Material.LIME_WOOL) {
