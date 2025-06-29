@@ -659,6 +659,12 @@ public class GuiManager {
             return;
         }
 
+        if (!shopItem.getStatus().equals("LISTED") || shopItem.getExpiryTimestamp() <= System.currentTimeMillis()) {
+            buyer.sendMessage(ChatColor.RED + "만료되었거나 이미 판매된 아이템입니다.");
+            buyer.closeInventory();
+            return;
+        }
+
         double totalPrice = shopItem.getPrice() * shopItem.getAmount();
 
         if (economyManager.getBalance(buyer) < totalPrice) {
@@ -667,46 +673,51 @@ public class GuiManager {
             return;
         }
 
+        if (!dbManager.updateShopItemStatus(shopItem.getId(), "SOLD", "LISTED")) {
+            buyer.sendMessage(ChatColor.RED + "다른 사람이 먼저 구매했거나 만료된 아이템입니다.");
+            openMainShop(buyer, plugin.getPlayerCurrentMainTab(buyer.getUniqueId()), plugin.getPlayerCurrentPage(buyer.getUniqueId()));
+            return;
+        }
+
         double finalSellerAmount = totalPrice;
         boolean applyTax = !Bukkit.getOfflinePlayer(shopItem.getSellerUuid()).getPlayer().hasPermission("usershop.tax.exempt");
 
         if (applyTax) {
             finalSellerAmount *= 0.95;
-            buyer.sendMessage(ChatColor.YELLOW + "판매 수수료 5%가 적용됩니다.");
         }
 
         if (!economyManager.withdrawPlayer(buyer, totalPrice)) {
-            buyer.sendMessage(ChatColor.RED + "돈을 인출하는 데 실패했습니다. 다시 시도해주세요.");
+            buyer.sendMessage(ChatColor.RED + "돈을 인출하지 못했습니다. 거래가 취소됩니다.");
+            dbManager.updateShopItemStatus(shopItem.getId(), "LISTED");
             buyer.closeInventory();
             return;
         }
 
         if (!economyManager.depositPlayer(shopItem.getSellerUuid(), finalSellerAmount)) {
-            buyer.sendMessage(ChatColor.RED + "판매자에게 돈을 입금하는 데 실패했습니다. 관리자에게 문의하세요.");
+            buyer.sendMessage(ChatColor.RED + "판매자에게 돈을 입금하지 못했습니다. 구매 금액은 환불됩니다. 관리자에게 문의하세요.");
             economyManager.depositPlayer(buyer.getUniqueId(), totalPrice);
+            plugin.getLogger().severe("CRITICAL: 아이템 ID " + shopItem.getId() + " 판매 대금 입금 실패. 구매자에게 금액을 환불했으나 아이템은 SOLD 상태로 남아있어 수동 확인이 필요합니다.");
             buyer.closeInventory();
             return;
         }
 
         ItemStack purchasedItem = shopItem.getItemStack().clone();
         purchasedItem.setAmount(shopItem.getAmount());
-
         plugin.giveItemToPlayer(buyer, purchasedItem, "상점 구매 아이템");
 
-        if (dbManager.updateShopItemStatus(shopItem.getId(), "SOLD")) {
-            dbManager.saveTransaction(new Transaction(0, shopItem.getId(), buyer.getUniqueId(), buyer.getName(), shopItem.getSellerUuid(), shopItem.getSellerName(), shopItem.getItemStack(), shopItem.getPrice(), shopItem.getAmount(), System.currentTimeMillis(), "SALE"));
-            buyer.sendMessage(ChatColor.GREEN + shopItem.getSellerName() + "님의 " + LanguageAPI.getItemName(purchasedItem) + " " + shopItem.getAmount() + "개를 성공적으로 구매했습니다!");
-            Player seller = Bukkit.getPlayer(shopItem.getSellerUuid());
-            if (seller != null && seller.isOnline()) {
-                seller.sendMessage(ChatColor.GREEN + buyer.getName() + "님이 당신의 " + LanguageAPI.getItemName(purchasedItem) + " " + shopItem.getAmount() + "개를 " + formatter.format(finalSellerAmount) + "원에 구매했습니다!");
-            }
-            Bukkit.getPluginManager().callEvent(new ShopItemPurchasedEvent(shopItem, buyer, shopItem.getAmount(), totalPrice));
-        } else {
-            buyer.sendMessage(ChatColor.RED + "아이템 구매 후 데이터베이스 업데이트에 실패했습니다. 관리자에게 문의하세요.");
+        dbManager.saveTransaction(new Transaction(0, shopItem.getId(), buyer.getUniqueId(), buyer.getName(), shopItem.getSellerUuid(), shopItem.getSellerName(), shopItem.getItemStack(), shopItem.getPrice(), shopItem.getAmount(), System.currentTimeMillis(), "SALE"));
+        buyer.sendMessage(ChatColor.GREEN + shopItem.getSellerName() + "님의 " + LanguageAPI.getItemName(purchasedItem) + " " + shopItem.getAmount() + "개를 성공적으로 구매했습니다!");
+        Player seller = Bukkit.getPlayer(shopItem.getSellerUuid());
+        if (seller != null && seller.isOnline()) {
+            seller.sendMessage(ChatColor.GREEN + buyer.getName() + "님이 당신의 " + LanguageAPI.getItemName(purchasedItem) + " " + shopItem.getAmount() + "개를 " + formatter.format(finalSellerAmount) + "원에 구매했습니다!");
         }
+        Bukkit.getPluginManager().callEvent(new ShopItemPurchasedEvent(shopItem, buyer, shopItem.getAmount(), totalPrice));
 
         buyer.closeInventory();
         openMainShop(buyer, plugin.getPlayerCurrentMainTab(buyer.getUniqueId()), plugin.getPlayerCurrentPage(buyer.getUniqueId()));
+
+        // TODO
+        // BID도 동일한 방식으로 수정
     }
 
     public void handleAuctionBuyNow(Player buyer, ItemStack displayItem) {
@@ -1085,39 +1096,46 @@ public class GuiManager {
         player.sendMessage(ChatColor.YELLOW + "/상점 관리" + ChatColor.GRAY + " - 내 물품을 관리합니다.");
         player.sendMessage(ChatColor.GOLD + "--------------------");
     }
-
     public void processExpiredAuctions() {
         List<AuctionItem> expiredAuctions = dbManager.getExpiredActiveAuctions();
         for (AuctionItem auction : expiredAuctions) {
-            if (auction.getHighestBidderUuid() != null) {
-                OfflinePlayer winner = Bukkit.getOfflinePlayer(auction.getHighestBidderUuid());
-                OfflinePlayer seller = Bukkit.getOfflinePlayer(auction.getSellerUuid());
-
-                double finalPrice = auction.getCurrentBid();
-                double finalSellerAmount = finalPrice;
-                if (!seller.getPlayer().hasPermission("usershop.tax.exempt")) {
-                    finalSellerAmount *= 0.95;
-                }
-
-                economyManager.depositPlayer(seller.getUniqueId(), finalSellerAmount);
-                if (seller.isOnline()) {
-                    seller.getPlayer().sendMessage(ChatColor.GREEN + "당신의 경매 아이템 (" + LanguageAPI.getItemName(auction.getItemStack()) + ")이 " + winner.getName() + "에게 " + formatter.format(finalPrice) + "원에 낙찰되어 " + formatter.format(finalSellerAmount) + "원이 지급되었습니다.");
-                }
-
-                ItemStack auctionedItem = auction.getItemStack().clone();
-                auctionedItem.setAmount(1);
-                plugin.giveItemToPlayer(winner, auctionedItem, "경매 낙찰 아이템");
-
-                dbManager.saveTransaction(new Transaction(0, auction.getId(), winner.getUniqueId(), winner.getName(), seller.getUniqueId(), seller.getName(), auction.getItemStack(), finalPrice, 1, System.currentTimeMillis(), "AUCTION_PURCHASE"));
-                Bukkit.getPluginManager().callEvent(new AuctionEndedEvent(auction, AuctionEndedEvent.Reason.SOLD, winner.isOnline() ? winner.getPlayer() : null));
-            } else {
-                OfflinePlayer seller = Bukkit.getOfflinePlayer(auction.getSellerUuid());
-                if (seller.isOnline()) {
-                    seller.getPlayer().sendMessage(ChatColor.YELLOW + "당신의 경매 아이템 (" + LanguageAPI.getItemName(auction.getItemStack()) + ")이 입찰자 없이 만료되었습니다. 물품 관리에서 회수할 수 있습니다.");
-                }
-                Bukkit.getPluginManager().callEvent(new AuctionEndedEvent(auction, AuctionEndedEvent.Reason.NO_BIDS, null));
-            }
             dbManager.updateAuctionItemStatus(auction.getId(), "ENDED");
+            Bukkit.getScheduler().runTask(plugin, () -> {
+                if (auction.getHighestBidderUuid() != null) {
+                    OfflinePlayer winner = Bukkit.getOfflinePlayer(auction.getHighestBidderUuid());
+                    OfflinePlayer seller = Bukkit.getOfflinePlayer(auction.getSellerUuid());
+
+                    double finalPrice = auction.getCurrentBid();
+                    double finalSellerAmount = finalPrice;
+
+                    boolean applyTax = true;
+                    if (seller.isOnline() && seller.getPlayer() != null) {
+                        applyTax = !seller.getPlayer().hasPermission("usershop.tax.exempt");
+                    }
+
+                    if (applyTax) {
+                        finalSellerAmount *= 0.95;
+                    }
+
+                    economyManager.depositPlayer(seller.getUniqueId(), finalSellerAmount);
+                    if (seller.isOnline() && seller.getPlayer() != null) {
+                        seller.getPlayer().sendMessage(ChatColor.GREEN + "당신의 경매 아이템 (" + LanguageAPI.getItemName(auction.getItemStack()) + ")이 " + winner.getName() + "에게 " + formatter.format(finalPrice) + "원에 낙찰되어 " + formatter.format(finalSellerAmount) + "원이 지급되었습니다.");
+                    }
+
+                    ItemStack auctionedItem = auction.getItemStack().clone();
+                    auctionedItem.setAmount(1);
+                    plugin.giveItemToPlayer(winner, auctionedItem, "경매 낙찰 아이템");
+
+                    dbManager.saveTransaction(new Transaction(0, auction.getId(), winner.getUniqueId(), winner.getName(), seller.getUniqueId(), seller.getName(), auction.getItemStack(), finalPrice, 1, System.currentTimeMillis(), "AUCTION_PURCHASE"));
+                    Bukkit.getPluginManager().callEvent(new AuctionEndedEvent(auction, AuctionEndedEvent.Reason.SOLD, winner.isOnline() ? winner.getPlayer() : null));
+                } else {
+                    OfflinePlayer seller = Bukkit.getOfflinePlayer(auction.getSellerUuid());
+                    if (seller.isOnline() && seller.getPlayer() != null) {
+                        seller.getPlayer().sendMessage(ChatColor.YELLOW + "당신의 경매 아이템 (" + LanguageAPI.getItemName(auction.getItemStack()) + ")이 입찰자 없이 만료되었습니다. 물품 관리에서 회수할 수 있습니다.");
+                    }
+                    Bukkit.getPluginManager().callEvent(new AuctionEndedEvent(auction, AuctionEndedEvent.Reason.NO_BIDS, null));
+                }
+            });
         }
     }
 

@@ -181,29 +181,24 @@ public final class RangUserShop extends JavaPlugin {
         log.info("RangGiftBox API와 성공적으로 연동되었습니다.");
     }
 
+
     private void processExpiredBuyRequests() {
         List<BuyRequest> expiredRequests = databaseManager.getExpiredActiveBuyRequests();
         for (BuyRequest request : expiredRequests) {
+            databaseManager.updateBuyRequestStatus(request.getId(), "EXPIRED");
             double amountToRefund = request.getPricePerItem() * (request.getAmountRequested() - request.getAmountFulfilled());
 
             if (amountToRefund > 0) {
-                if (economyManager.depositPlayer(request.getRequesterUuid(), amountToRefund)) {
-                    databaseManager.updateBuyRequestStatus(request.getId(), "EXPIRED");
-
-                    OfflinePlayer requester = Bukkit.getOfflinePlayer(request.getRequesterUuid());
-                    if (requester.isOnline()) {
-                        Bukkit.getScheduler().runTask(this, () -> {
-                            Player onlineRequester = requester.getPlayer();
-                            if (onlineRequester != null) {
-                                onlineRequester.sendMessage(ChatColor.YELLOW + "구매 요청하신 아이템(" + LanguageAPI.getItemName(request.getItemStack()) + ")이 만료되어 " + formatter.format(amountToRefund) + "원이 환불되었습니다.");
-                            }
-                        });
-                    }
-                } else {
-                    log.warning("만료된 구매 요청(ID: " + request.getId() + ")의 금액 환불에 실패했습니다. 요청자: " + request.getRequesterUuid() + ", 환불액: " + amountToRefund);
+                economyManager.depositPlayer(request.getRequesterUuid(), amountToRefund);
+                OfflinePlayer requester = Bukkit.getOfflinePlayer(request.getRequesterUuid());
+                if (requester.isOnline()) {
+                    Bukkit.getScheduler().runTask(this, () -> {
+                        Player onlineRequester = requester.getPlayer();
+                        if (onlineRequester != null) {
+                            onlineRequester.sendMessage(ChatColor.YELLOW + "구매 요청하신 아이템(" + LanguageAPI.getItemName(request.getItemStack()) + ")이 만료되어 " + formatter.format(amountToRefund) + "원이 환불되었습니다.");
+                        }
+                    });
                 }
-            } else {
-                databaseManager.updateBuyRequestStatus(request.getId(), "EXPIRED");
             }
         }
     }

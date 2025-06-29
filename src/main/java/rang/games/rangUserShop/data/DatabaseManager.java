@@ -292,6 +292,18 @@ public class DatabaseManager {
         }
         return false;
     }
+    public boolean updateShopItemStatus(int id, String newStatus, String expectedOldStatus) {
+        String sql = "UPDATE shop_items SET status = ? WHERE id = ? AND status = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, newStatus);
+            pstmt.setInt(2, id);
+            pstmt.setString(3, expectedOldStatus);
+            return pstmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "ID " + id + "의 상점 아이템 상태를 업데이트할 수 없습니다!", e);
+        }
+        return false;
+    }
 
     public boolean deleteShopItem(int id) {
         String sql = "DELETE FROM shop_items WHERE id = ?";
@@ -508,6 +520,19 @@ public class DatabaseManager {
             return pstmt.executeUpdate() > 0;
         } catch (SQLException e) {
             log.log(Level.SEVERE, "ID " + id + "의 경매 아이템 상태를 MariaDB에서 업데이트할 수 없습니다!", e);
+        }
+        return false;
+    }
+
+    public boolean updateAuctionItemStatus(int id, String newStatus, String expectedOldStatus) {
+        String sql = "UPDATE shop_auctions SET status = ? WHERE id = ? AND status = ?";
+        try (PreparedStatement pstmt = connection.prepareStatement(sql)) {
+            pstmt.setString(1, newStatus);
+            pstmt.setInt(2, id);
+            pstmt.setString(3, expectedOldStatus);
+            return pstmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            log.log(Level.SEVERE, "ID " + id + "의 경매 아이템 상태를 업데이트할 수 없습니다!", e);
         }
         return false;
     }
