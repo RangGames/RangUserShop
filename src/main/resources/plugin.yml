@@ -3,7 +3,7 @@ version: '1.0-SNAPSHOT'
 api-version: 1.21
 main: rang.games.rangUserShop.RangUserShop
 author: Rang
-depend: [Vault, RangGiftBox, Luckperms]
+depend: [Vault, RangGiftBox, LuckPerms]
 
 commands:
   유저상점:
