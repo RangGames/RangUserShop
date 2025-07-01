@@ -1,5 +1,6 @@
 package rang.games.rangUserShop;
 
+import net.luckperms.api.LuckPerms;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
 import org.bukkit.Material;
@@ -33,6 +34,7 @@ public final class RangUserShop extends JavaPlugin {
 
     private DatabaseManager databaseManager;
     private EconomyManager economyManager;
+    private LuckPerms luckpermsApi;
     private GuiManager guiManager;
     private UserShopAPI userShopAPI;
     private GiftBoxAPI giftBoxAPI;
@@ -129,7 +131,10 @@ public final class RangUserShop extends JavaPlugin {
             return;
         }
 
-        setupGiftBoxAPI();
+        if (!setupLuckPerms() || !setupGiftBoxAPI()) {
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
 
         this.databaseManager = new DatabaseManager(this, getConfig());
         databaseManager.connect();
@@ -165,20 +170,34 @@ public final class RangUserShop extends JavaPlugin {
         log.info(String.format("[%s] 플러그인이 비활성화되었습니다.", getDescription().getName()));
     }
 
-    private void setupGiftBoxAPI() {
+    private boolean setupLuckPerms() {
+        if (getServer().getPluginManager().getPlugin("LuckPerms") == null) {
+            log.severe("필수 플러그인 LuckPerms를 찾을 수 없어 플러그인을 비활성화합니다.");
+            return false;
+        }
+        RegisteredServiceProvider<LuckPerms> provider = Bukkit.getServicesManager().getRegistration(LuckPerms.class);
+        if (provider == null) {
+            log.severe("LuckPerms API를 찾을 수 없어 플러그인을 비활성화합니다.");
+            return false;
+        }
+        this.luckpermsApi = provider.getProvider();
+        log.info("LuckPerms API와 성공적으로 연동되었습니다.");
+        return true;
+    }
+
+    private boolean setupGiftBoxAPI() {
         if (getServer().getPluginManager().getPlugin("RangGiftBox") == null) {
-            log.warning("RangGiftBox 플러그인을 찾을 수 없습니다. 우편함 기능이 비활성화됩니다.");
-            this.giftBoxAPI = null;
-            return;
+            log.severe("필수 플러그인 RangGiftBox를 찾을 수 없어 플러그인을 비활성화합니다.");
+            return false;
         }
         RegisteredServiceProvider<GiftBoxAPI> rsp = getServer().getServicesManager().getRegistration(GiftBoxAPI.class);
         if (rsp == null) {
-            log.warning("RangGiftBox API를 찾을 수 없습니다. 우편함 기능이 제한될 수 있습니다.");
-            this.giftBoxAPI = null;
-            return;
+            log.severe("RangGiftBox API를 찾을 수 없어 플러그인을 비활성화합니다.");
+            return false;
         }
         this.giftBoxAPI = rsp.getProvider();
         log.info("RangGiftBox API와 성공적으로 연동되었습니다.");
+        return true;
     }
 
 
@@ -259,6 +278,10 @@ public final class RangUserShop extends JavaPlugin {
 
     public EconomyManager getEconomyManager() {
         return economyManager;
+    }
+
+    public LuckPerms getLuckpermsApi() {
+        return luckpermsApi;
     }
 
     public GuiManager getGuiManager() {

@@ -3,6 +3,7 @@ package rang.games.rangUserShop;
 import de.rapha149.signgui.SignGUI;
 import de.rapha149.signgui.SignGUIAction;
 import de.rapha149.signgui.exception.SignGUIVersionException;
+import net.luckperms.api.model.user.User;
 import org.bukkit.*;
 import org.bukkit.entity.Player;
 import org.bukkit.event.inventory.ClickType;
@@ -680,7 +681,7 @@ public class GuiManager {
         }
 
         double finalSellerAmount = totalPrice;
-        boolean applyTax = !Bukkit.getOfflinePlayer(shopItem.getSellerUuid()).getPlayer().hasPermission("usershop.tax.exempt");
+        boolean applyTax = !hasPermission(shopItem.getSellerUuid(), "usershop.tax.exempt");
 
         if (applyTax) {
             finalSellerAmount *= 0.95;
@@ -717,7 +718,7 @@ public class GuiManager {
         openMainShop(buyer, plugin.getPlayerCurrentMainTab(buyer.getUniqueId()), plugin.getPlayerCurrentPage(buyer.getUniqueId()));
 
         // TODO
-        // BID도 동일한 방식으로 수정
+        // BID도 동일한 방식으로 수정 (안정성 올리기)
     }
 
     public void handleAuctionBuyNow(Player buyer, ItemStack displayItem) {
@@ -753,11 +754,10 @@ public class GuiManager {
         }
 
         double finalSellerAmount = buyNowPrice;
-        boolean applyTax = !Bukkit.getOfflinePlayer(auctionItem.getSellerUuid()).getPlayer().hasPermission("usershop.tax.exempt");
+        boolean applyTax = !hasPermission(auctionItem.getSellerUuid(), "usershop.tax.exempt");
 
         if (applyTax) {
             finalSellerAmount *= 0.95;
-            buyer.sendMessage(ChatColor.YELLOW + "판매 수수료 5%가 적용됩니다.");
         }
 
         if (!economyManager.withdrawPlayer(buyer, buyNowPrice)) {
@@ -1108,10 +1108,7 @@ public class GuiManager {
                     double finalPrice = auction.getCurrentBid();
                     double finalSellerAmount = finalPrice;
 
-                    boolean applyTax = true;
-                    if (seller.isOnline() && seller.getPlayer() != null) {
-                        applyTax = !seller.getPlayer().hasPermission("usershop.tax.exempt");
-                    }
+                    boolean applyTax = !hasPermission(seller.getUniqueId(), "usershop.tax.exempt");
 
                     if (applyTax) {
                         finalSellerAmount *= 0.95;
@@ -1522,6 +1519,25 @@ public class GuiManager {
             item.setItemMeta(meta);
         }
         return item;
+    }
+
+    private boolean hasPermission(UUID uuid, String permission) {
+        if (plugin.getLuckpermsApi() == null) {
+            return false;
+        }
+        Player onlinePlayer = Bukkit.getPlayer(uuid);
+        if (onlinePlayer != null) {
+            return onlinePlayer.hasPermission(permission);
+        }
+        try {
+            User user = plugin.getLuckpermsApi().getUserManager().loadUser(uuid).join();
+            if (user != null) {
+                return user.getCachedData().getPermissionData().checkPermission(permission).asBoolean();
+            }
+        } catch (Exception e) {
+            plugin.getLogger().log(Level.WARNING, "Error checking permission for offline player " + uuid, e);
+        }
+        return false;
     }
 
     private String formatDuration(long millis) {
